@@ -1,0 +1,47 @@
+{
+  "name": "goldadam-crm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "seed": "node scripts/seed.js",
+    "import:csv": "node scripts/import-bookings-csv.js",
+    "import:pg-sql": "node scripts/csv_to_supabase_sql.js",
+    "scraper:auth-setup": "node scraper/auth-setup.js",
+    "scraper:run": "node scraper/dailyRun.js",
+    "scraper:sales-run": "node scraper/salesRun.js",
+    "scraper:start": "node scraper/scheduler.js"
+  },
+  "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.525.0",
+    "mongoose": "^8.16.2",
+    "next": "^15.3.5",
+    "node-cron": "^3.0.3",
+    "playwright": "^1.48.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hot-toast": "^2.5.2",
+    "tailwind-merge": "^3.3.1",
+    "twilio": "^4.0.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76",
+    "zustand": "^5.0.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.11",
+    "autoprefixer": "^10.4.21",
+    "localtunnel": "^2.0.2",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.11"
+  }
+}

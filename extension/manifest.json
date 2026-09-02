@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Gold Adam CRM Sync",
+  "version": "0.1.0",
+  "description": "Scrapes bookings from agent.goldadam.us into the Gold Adam CRM and reflects status changes back.",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": ["https://agent.goldadam.us/*", "<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Gold Adam CRM Sync"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://agent.goldadam.us/*"],
+      "js": ["adapter.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
