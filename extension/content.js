@@ -232,11 +232,30 @@
       const rows = [];
       let pageNum = 1;
       const maxPages = 200; // sanity cap so a DOM regression can't loop forever
+      let prevFirstPkg = null;
       while (pageNum <= maxPages) {
-        rows.push(...A.sales.extractSalesRows());
+        // A fixed sleep after clicking "Next" isn't enough on a large range
+        // (e.g. "All Time") — the table can take longer than that to refetch,
+        // so we'd read the still-stale previous page (or an empty in-between
+        // state) and either duplicate rows or bail out early. Wait for the
+        // first row's package number to actually change instead.
+        const loaded = await waitFor(() => {
+          const r = A.sales.extractSalesRows();
+          if (r.length === 0) return /no sales found/i.test(bodyText());
+          return r[0].packageNumber !== prevFirstPkg;
+        }, 15000);
+        if (!loaded) {
+          log(`Sales sync: page ${pageNum} didn't finish loading in time — stopping here.`);
+          break;
+        }
+
+        const pageRows = A.sales.extractSalesRows();
+        rows.push(...pageRows);
+        if (pageRows[0]?.packageNumber) prevFirstPkg = pageRows[0].packageNumber;
+
         const advanced = A.sales.clickNextSalesPage();
         if (!advanced) break;
-        await sleep(2000 + Math.random() * 1500);
+        await sleep(600); // let the click register before the wait-loop above starts polling
         pageNum += 1;
       }
 
