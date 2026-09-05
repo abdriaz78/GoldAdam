@@ -72,8 +72,11 @@
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
           <button id="gaext-wb" style="flex:1;cursor:pointer;background:#16a34a;color:#fff;border:0;border-radius:6px;padding:6px">Run write-backs (this route)</button>
         </div>
+        <div style="margin-bottom:6px">Sync sales:</div>
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-          <button id="gaext-sales" style="flex:1;cursor:pointer;background:#9333ea;color:#fff;border:0;border-radius:6px;padding:6px">Sync sales (Last Week)</button>
+          <button id="gaext-sales-week" style="flex:1;cursor:pointer;background:#9333ea;color:#fff;border:0;border-radius:6px;padding:6px">Last Week</button>
+          <button id="gaext-sales-month" style="flex:1;cursor:pointer;background:#9333ea;color:#fff;border:0;border-radius:6px;padding:6px">Last Month</button>
+          <button id="gaext-sales-all" style="flex:1;cursor:pointer;background:#7e22ce;color:#fff;border:0;border-radius:6px;padding:6px" title="One-off backfill — slower, don't run this daily">All Time</button>
         </div>
         <pre id="gaext-log" style="max-height:120px;overflow:auto;background:#000;border:1px solid #1f2937;border-radius:6px;padding:6px;white-space:pre-wrap;margin:0"></pre>
       </div>`;
@@ -88,7 +91,9 @@
     document.getElementById("gaext-sync").onclick = startSync;
     document.getElementById("gaext-stop").onclick = stopSync;
     document.getElementById("gaext-wb").onclick = runWritebacks;
-    document.getElementById("gaext-sales").onclick = () => startSalesSync("Last Week");
+    document.getElementById("gaext-sales-week").onclick = () => startSalesSync("Last Week");
+    document.getElementById("gaext-sales-month").onclick = () => startSalesSync("Last Month");
+    document.getElementById("gaext-sales-all").onclick = () => startSalesSync("All Time");
     document.getElementById("gaext-min").onclick = () => {
       const b = document.getElementById("gaext-body");
       b.style.display = b.style.display === "none" ? "block" : "none";
