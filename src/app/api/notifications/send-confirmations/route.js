@@ -3,6 +3,7 @@ import Booking from "@/lib/models/Booking";
 import { requireAdmin } from "@/lib/auth";
 import { handler, ok, fail } from "@/lib/api";
 import { sendSms } from "@/lib/twilio";
+import { requireCronOrAdmin } from "@/lib/cron";
 
 function tomorrowISO(base = new Date()) {
   const d = new Date(base);
@@ -11,27 +12,20 @@ function tomorrowISO(base = new Date()) {
 }
 
 /**
- * POST /api/notifications/send-confirmations
- * body: { date?, resend? }
  * Texts every pending booking's customer for the given date (default
  * tomorrow) asking them to reply YES/NO to confirm their appointment.
  * Skips bookings already asked unless `resend` is true. The inbound
  * webhook at /api/twilio/inbound reads their reply and updates status.
  */
-export const POST = handler(async (req) => {
-  await requireAdmin(req);
+async function sendConfirmations({ date, resend }) {
   await connectDB();
-
-  const body = await req.json().catch(() => ({}));
-  const date = body?.date || tomorrowISO();
-  const resend = !!body?.resend;
 
   const filter = { dateISO: date, status: "pending" };
   if (!resend) filter.confirmationRequestedAt = null;
 
   const bookings = await Booking.find(filter).populate("agentId").lean();
   if (bookings.length === 0) {
-    return ok({ message: "No pending bookings to confirm for this date", date, sent: 0 });
+    return { message: "No pending bookings to confirm for this date", date, sent: 0 };
   }
 
   const defaultFrom = process.env.TWILIO_FROM_NUMBER || "";
@@ -68,5 +62,27 @@ export const POST = handler(async (req) => {
     }
   }
 
-  return ok({ date, sentCount, results });
+  return { date, sentCount, results };
+}
+
+/**
+ * POST /api/notifications/send-confirmations
+ * body: { date?, resend? }
+ * Admin-triggered manual run.
+ */
+export const POST = handler(async (req) => {
+  await requireAdmin(req);
+  const body = await req.json().catch(() => ({}));
+  const date = body?.date || tomorrowISO();
+  const resend = !!body?.resend;
+  return ok(await sendConfirmations({ date, resend }));
+});
+
+/**
+ * GET /api/notifications/send-confirmations
+ * Vercel Cron entry point — auth is a shared CRON_SECRET, not a user session.
+ */
+export const GET = handler(async (req) => {
+  await requireCronOrAdmin(req);
+  return ok(await sendConfirmations({ date: tomorrowISO(), resend: false }));
 });

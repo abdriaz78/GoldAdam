@@ -98,13 +98,24 @@
     const raw = document.getElementById("gaext-routes").value;
     const queue = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
     if (!queue.length) return log("Enter at least one route code.");
-    await setRun({ active: true, queue, current: null });
+    await setRun({ active: true, queue, current: null, auto: false });
     log("▶ Sync started: " + queue.join(", "));
     tick();
   }
   async function stopSync() {
     await setRun({ active: false, queue: [], current: null });
     log("⏹ Sync stopped");
+  }
+
+  // Kicked off by background.js's daily chrome.alarms trigger — same state
+  // machine as a manual "Sync routes" click, plus auto-executing only the
+  // AUTO_SAFE_ACTIONS-allowlisted write-backs per route as it goes (never
+  // Start Purchase — see adapter.js).
+  async function startAutoSync(routes) {
+    if (!routes || !routes.length) return log("Auto-run: no routes provided by CRM.");
+    await setRun({ active: true, queue: routes, current: null, auto: true });
+    log("▶ Auto-run started: " + routes.join(", "));
+    tick();
   }
 
   async function ingestCurrent(code) {
@@ -115,14 +126,25 @@
     return true;
   }
 
-  async function runWritebacks() {
-    const code = A.scrape.pageRouteCode();
-    if (!A.scrape.onBookingsPath() || !code) return log("Open a route's bookings page first.");
+  // autoOnly restricts execution to adapter.js's AUTO_SAFE_ACTIONS allowlist
+  // (used by the unattended daily run); the manual "Run write-backs" button
+  // runs everything queued, including the human-only Start Purchase action.
+  async function executeWritebacksForRoute(code, { autoOnly = false } = {}) {
     try {
       const { commands } = await cf(`/api/commands?routes=${encodeURIComponent(code)}`);
       if (!commands.length) return log(`No queued write-backs for ${code}.`);
-      log(`Executing ${commands.length} write-back(s) for ${code}…`);
-      for (const cmd of commands) {
+
+      const toRun = autoOnly
+        ? commands.filter((c) => A.writeback.AUTO_SAFE_ACTIONS.includes(c.action))
+        : commands;
+      const skipped = commands.length - toRun.length;
+      if (skipped > 0) {
+        log(`⏸ ${skipped} write-back(s) for ${code} need a human (Start Purchase) — left queued.`);
+      }
+      if (!toRun.length) return;
+
+      log(`Executing ${toRun.length} write-back(s) for ${code}…`);
+      for (const cmd of toRun) {
         const result = await A.writeback.executeCommand(cmd);
         await cf(`/api/commands/${cmd.id}/result`, "POST", {
           success: result.success,
@@ -136,6 +158,12 @@
     }
   }
 
+  async function runWritebacks() {
+    const code = A.scrape.pageRouteCode();
+    if (!A.scrape.onBookingsPath() || !code) return log("Open a route's bookings page first.");
+    await executeWritebacksForRoute(code, { autoOnly: false });
+  }
+
   async function tick() {
     if (BUSY) return;
     BUSY = true;
@@ -146,6 +174,11 @@
         await waitFor(() => /Total Bookings|Stops/i.test(bodyText()), 20000);
         const code = run.current || A.scrape.pageRouteCode();
         if (code) await ingestCurrent(code).catch((e) => log("Ingest error: " + e.message));
+        if (code && run.auto) {
+          await executeWritebacksForRoute(code, { autoOnly: true }).catch((e) =>
+            log("Auto write-back error: " + e.message)
+          );
+        }
 
         if (run.active && code) {
           run.queue = run.queue.filter((c) => c !== code && c !== run.current);
@@ -198,6 +231,14 @@
       BUSY = false;
     }
   }
+
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type === "AUTO_RUN") {
+      startAutoSync(msg.routes || []);
+      sendResponse({ ok: true });
+      return true;
+    }
+  });
 
   function boot() {
     if (!document.documentElement) return setTimeout(boot, 300);

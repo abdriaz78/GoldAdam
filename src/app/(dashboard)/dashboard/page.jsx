@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const [today, setToday] = useState(null);
   const [mtd, setMtd] = useState(null);
   const [todaysBookings, setTodaysBookings] = useState([]);
+  const [pendingPurchases, setPendingPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (user) => {
@@ -37,6 +38,13 @@ export default function DashboardPage() {
       if (user.role === "agent") {
         const b = await api("/api/bookings", { params: { from: iso, to: iso, limit: 50 } });
         setTodaysBookings(b.bookings);
+      }
+      if (user.role === "admin") {
+        // "complete" (Start Purchase) is never auto-executed by the extension's
+        // daily run — it's the one action that always needs a human click, so
+        // surface whatever's still waiting.
+        const c = await api("/api/commands");
+        setPendingPurchases(c.commands.filter((cmd) => cmd.action === "complete"));
       }
     } catch (err) {
       toast.error(err.message);
@@ -150,6 +158,30 @@ export default function DashboardPage() {
               </Link>
             ))}
           </div>
+        </Section>
+      )}
+
+      {isAdmin && pendingPurchases.length > 0 && (
+        <Section label="Needs your action on goldadam">
+          <div className="overflow-hidden rounded-xl border border-amber-200 bg-white">
+            <table className="w-full text-sm">
+              <tbody>
+                {pendingPurchases.map((cmd) => (
+                  <tr key={cmd.id} className="border-b border-amber-100 last:border-0">
+                    <td className="px-4 py-2.5 font-medium text-stone-900">
+                      {cmd.booking?.customerName || "Unknown customer"}
+                    </td>
+                    <td className="px-4 py-2.5 text-stone-500">{cmd.routeCode}</td>
+                    <td className="px-4 py-2.5 text-stone-500">{cmd.note || "Start Purchase"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs text-stone-500">
+            These are never automated — Start Purchase always needs your click in goldadam
+            (via the extension's "Run write-backs" button or directly on the site).
+          </p>
         </Section>
       )}
 

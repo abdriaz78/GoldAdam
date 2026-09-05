@@ -77,6 +77,10 @@ export async function POST(req) {
 
   const now = new Date();
   if (answer === "yes") {
+    // No WritebackCommand here: goldadam has no "Confirm" button (SITE_NOTES.md) —
+    // a YES reply just means the customer is still on for their appointment, which
+    // needs no goldadam click. The agent acts on it when they physically arrive
+    // (Start Purchase / No Sell / No Show), not before.
     const timeSlot = booking.timeWindow || booking.timeSlot || "";
     await Booking.updateOne(
       { _id: booking._id },
@@ -89,15 +93,6 @@ export async function POST(req) {
         },
       }
     );
-    await WritebackCommand.create({
-      bookingId: booking._id,
-      routeCode: booking.routeCode,
-      action: "confirm",
-      note: `Customer confirmed via SMS reply: "${bodyText}"`,
-      timeSlot,
-      dryRun: true,
-      status: "queued",
-    });
     return twimlReply("Thanks! Your appointment is confirmed.");
   }
 

@@ -5,6 +5,7 @@ import RouteAssignment from "@/lib/models/RouteAssignment";
 import { requireAdmin } from "@/lib/auth";
 import { handler, ok, fail } from "@/lib/api";
 import { sendSms } from "@/lib/twilio";
+import { requireCronOrAdmin } from "@/lib/cron";
 
 function tomorrowISO(base = new Date()) {
   const d = new Date(base);
@@ -12,16 +13,11 @@ function tomorrowISO(base = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-export const POST = handler(async (req) => {
-  await requireAdmin(req);
+async function sendReminders({ date }) {
   await connectDB();
 
-  const body = await req.json();
-  const date = body?.date || tomorrowISO();
-  if (!date) return fail("A date is required");
-
   const assignments = await RouteAssignment.find({ date }).populate("agentId").lean();
-  if (assignments.length === 0) return ok({ message: "No route assignments for this date", date, sent: 0 });
+  if (assignments.length === 0) return { message: "No route assignments for this date", date, sent: 0 };
 
   const agentGroups = new Map();
   const results = [];
@@ -74,5 +70,26 @@ export const POST = handler(async (req) => {
     }
   }
 
-  return ok({ date, assignedAgents: agentGroups.size, sentCount, results });
+  return { date, assignedAgents: agentGroups.size, sentCount, results };
+}
+
+/**
+ * POST /api/notifications/send-reminders
+ * body: { date? }
+ * Admin-triggered manual run.
+ */
+export const POST = handler(async (req) => {
+  await requireAdmin(req);
+  const body = await req.json().catch(() => ({}));
+  const date = body?.date || tomorrowISO();
+  return ok(await sendReminders({ date }));
+});
+
+/**
+ * GET /api/notifications/send-reminders
+ * Vercel Cron entry point — auth is a shared CRON_SECRET, not a user session.
+ */
+export const GET = handler(async (req) => {
+  await requireCronOrAdmin(req);
+  return ok(await sendReminders({ date: tomorrowISO() }));
 });

@@ -15,6 +15,12 @@
 (function () {
   const ADAPTER_VERSION = "2026-08-07";
 
+  // Actions the unattended daily run is allowed to execute on its own.
+  // "complete" (Start Purchase) fires a real transaction and must never
+  // appear here — it always stays queued for a human to run by hand via
+  // the on-page "Run write-backs" button. See SITE_NOTES.md.
+  const AUTO_SAFE_ACTIONS = ["cancel"];
+
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const bodyText = () => (document.body && document.body.innerText) || "";
@@ -165,6 +171,6 @@
       findRouteClickable,
       clickByText,
     },
-    writeback: { findBookingRow, executeCommand },
+    writeback: { findBookingRow, executeCommand, AUTO_SAFE_ACTIONS },
   };
 })();
