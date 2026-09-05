@@ -11,8 +11,10 @@
   const { sleep, bodyText, waitFor } = A.util;
 
   const RUN_KEY = "ga_ext_run"; // { active, queue:[], current }
+  const SALES_RUN_KEY = "ga_ext_sales_run"; // { active, dateRangeLabel }
   let cooling = 0;
   let BUSY = false;
+  let salesBusy = false;
   let lastPath = location.pathname;
 
   // ---- storage helpers ----
@@ -21,6 +23,14 @@
       chrome.storage.local.get(RUN_KEY, (o) => res(o[RUN_KEY] || { active: false, queue: [], current: null }))
     );
   const setRun = (v) => new Promise((res) => chrome.storage.local.set({ [RUN_KEY]: v }, res));
+
+  const getSalesRun = () =>
+    new Promise((res) =>
+      chrome.storage.local.get(SALES_RUN_KEY, (o) =>
+        res(o[SALES_RUN_KEY] || { active: false, dateRangeLabel: "Last Week" })
+      )
+    );
+  const setSalesRun = (v) => new Promise((res) => chrome.storage.local.set({ [SALES_RUN_KEY]: v }, res));
 
   // ---- CRM calls via background ----
   function cf(path, method = "GET", body) {
@@ -62,6 +72,9 @@
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
           <button id="gaext-wb" style="flex:1;cursor:pointer;background:#16a34a;color:#fff;border:0;border-radius:6px;padding:6px">Run write-backs (this route)</button>
         </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <button id="gaext-sales" style="flex:1;cursor:pointer;background:#9333ea;color:#fff;border:0;border-radius:6px;padding:6px">Sync sales (Last Week)</button>
+        </div>
         <pre id="gaext-log" style="max-height:120px;overflow:auto;background:#000;border:1px solid #1f2937;border-radius:6px;padding:6px;white-space:pre-wrap;margin:0"></pre>
       </div>`;
     (document.documentElement || document.body).appendChild(p);
@@ -75,6 +88,7 @@
     document.getElementById("gaext-sync").onclick = startSync;
     document.getElementById("gaext-stop").onclick = stopSync;
     document.getElementById("gaext-wb").onclick = runWritebacks;
+    document.getElementById("gaext-sales").onclick = () => startSalesSync("Last Week");
     document.getElementById("gaext-min").onclick = () => {
       const b = document.getElementById("gaext-body");
       b.style.display = b.style.display === "none" ? "block" : "none";
@@ -96,8 +110,19 @@
 
   async function startSync() {
     const raw = document.getElementById("gaext-routes").value;
-    const queue = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-    if (!queue.length) return log("Enter at least one route code.");
+    let queue = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+
+    if (!queue.length) {
+      log("No routes typed — fetching the full route list from the CRM…");
+      try {
+        const { routes } = await cf("/api/routes");
+        queue = (routes || []).map((r) => r.code).filter(Boolean);
+      } catch (e) {
+        return log("Couldn't fetch routes from CRM: " + e.message);
+      }
+      if (!queue.length) return log("CRM has no routes on file.");
+    }
+
     await setRun({ active: true, queue, current: null, auto: false });
     log("▶ Sync started: " + queue.join(", "));
     tick();
@@ -162,6 +187,66 @@
     const code = A.scrape.pageRouteCode();
     if (!A.scrape.onBookingsPath() || !code) return log("Open a route's bookings page first.");
     await executeWritebacksForRoute(code, { autoOnly: false });
+  }
+
+  // ---- sales sync ----
+  // Navigating to /sales is a full page load (like /start/route), so progress
+  // is tracked in storage (SALES_RUN_KEY) rather than a local variable, the
+  // same pattern as the bookings RUN_KEY — salesTick() picks up where it left
+  // off after boot() re-runs on the new page.
+  async function startSalesSync(dateRangeLabel = "Last Week") {
+    await setSalesRun({ active: true, dateRangeLabel });
+    log(`▶ Sales sync started (${dateRangeLabel})`);
+    if (A.sales.onSalesPath()) {
+      salesTick();
+    } else {
+      location.href = "https://agent.goldadam.us/sales";
+    }
+  }
+
+  async function salesTick() {
+    if (salesBusy) return;
+    const run = await getSalesRun();
+    if (!run.active || !A.sales.onSalesPath()) return;
+    salesBusy = true;
+    try {
+      const gotTable = await waitFor(() => !!document.querySelector("table"), 20000);
+      if (!gotTable) {
+        log("Sales sync: no table found on /sales — stopping.");
+        await setSalesRun({ active: false, dateRangeLabel: run.dateRangeLabel });
+        return;
+      }
+      await sleep(500);
+
+      if (run.dateRangeLabel && run.dateRangeLabel !== "Today") {
+        log(`Sales sync: setting date range to "${run.dateRangeLabel}"…`);
+        await A.sales.setSalesDateRange(run.dateRangeLabel);
+        await sleep(1200);
+      }
+
+      const rows = [];
+      let pageNum = 1;
+      const maxPages = 200; // sanity cap so a DOM regression can't loop forever
+      while (pageNum <= maxPages) {
+        rows.push(...A.sales.extractSalesRows());
+        const advanced = A.sales.clickNextSalesPage();
+        if (!advanced) break;
+        await sleep(2000 + Math.random() * 1500);
+        pageNum += 1;
+      }
+
+      log(`Sales sync: scraped ${rows.length} row(s) across ${pageNum} page(s). Ingesting…`);
+      if (rows.length) {
+        const res = await cf("/api/sales/ingest", "POST", { rows });
+        log(`✔ Sales ingested: received ${res.received}, inserted ${res.inserted}, modified ${res.modified}`);
+      }
+      log("🎉 Sales sync complete");
+    } catch (e) {
+      log("Sales sync error: " + e.message);
+    } finally {
+      await setSalesRun({ active: false, dateRangeLabel: run.dateRangeLabel });
+      salesBusy = false;
+    }
   }
 
   async function tick() {
@@ -238,6 +323,11 @@
       sendResponse({ ok: true });
       return true;
     }
+    if (msg?.type === "AUTO_RUN_SALES") {
+      startSalesSync(msg.dateRangeLabel || "Last Week");
+      sendResponse({ ok: true });
+      return true;
+    }
   });
 
   function boot() {
@@ -245,14 +335,19 @@
     buildPanel();
     log("Loaded on " + location.pathname + " · adapter " + A.version);
     setTimeout(tick, 1200);
+    setTimeout(salesTick, 1200);
     setInterval(() => {
       if (!document.getElementById("gaext-panel")) buildPanel();
       if (location.pathname !== lastPath) {
         lastPath = location.pathname;
         setTimeout(tick, 1000);
+        setTimeout(salesTick, 1000);
       } else if (Date.now() > cooling) {
         getRun().then((r) => {
           if (r.active) tick();
+        });
+        getSalesRun().then((r) => {
+          if (r.active) salesTick();
         });
       }
     }, 1200);

@@ -122,6 +122,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// Exposed on self so it's callable from the service worker's DevTools
+// console for manual testing (this file is an ES module, so top-level
+// function declarations aren't visible as console globals otherwise).
+self.runDailyAutoSync = runDailyAutoSync;
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     if (msg?.type === "CRM_FETCH") {

@@ -197,6 +197,94 @@
     };
   }
 
+  // ---- sales scraping ----
+  // Ports scraper/lib/salesScraping.js's DOM logic (captured in SITE_NOTES.md,
+  // 2026-09-02) into a content script — the headless version can never reach
+  // goldadam at all (same bot-protection block as bookings), so this is the
+  // only place this can actually run. List-level only, by design: never
+  // opens a row's detail modal, so it never touches bank/routing or ID
+  // document numbers that live there.
+  function onSalesPath() {
+    return /\/sales(\/|$)/i.test(location.pathname);
+  }
+
+  function extractSalesRows() {
+    const table = document.querySelector("table");
+    if (!table) return [];
+    return Array.from(table.querySelectorAll("tbody tr"))
+      .map((tr) => {
+        const cells = tr.querySelectorAll("td");
+        if (cells.length < 8) return null;
+
+        const pkgCell = cells[0];
+        const packageNumber = (pkgCell.querySelector("span.font-mono")?.textContent || "").trim();
+        if (!packageNumber) return null;
+        const controlled = !!pkgCell.querySelector('svg[aria-label="Controlled"]');
+        const testPurchase = /\bTEST\b/.test(pkgCell.textContent);
+
+        const date = cells[1].textContent.trim();
+
+        const customerText = norm(cells[2].textContent);
+        const routeMatch = customerText.match(/Route:\s*(\S+)/);
+        const routeCode = routeMatch ? routeMatch[1] : "";
+        const customerName = customerText.replace(/Route:\s*\S+/, "").trim();
+
+        const goldText = norm(cells[3].textContent);
+        const silverText = norm(cells[4].textContent);
+        const margin = cells[5].textContent.trim();
+        const profitText = norm(cells[6].textContent);
+        const payoutText = norm(cells[7].textContent);
+        const paid = /Paid/.test(payoutText);
+
+        return {
+          packageNumber,
+          controlled,
+          testPurchase,
+          date,
+          customerName,
+          routeCode,
+          goldText,
+          silverText,
+          margin,
+          profitText,
+          payoutText,
+          paid,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function openSalesDateMenu() {
+    const labelNode = Array.from(document.querySelectorAll("div,span")).find(
+      (el) => el.children.length === 0 && norm(el.textContent) === "Dates"
+    );
+    const container = labelNode?.closest("div")?.parentElement || labelNode?.parentElement;
+    const trigger = container?.querySelector("button");
+    if (trigger) {
+      trigger.click();
+      return true;
+    }
+    return false;
+  }
+
+  async function setSalesDateRange(label) {
+    if (!openSalesDateMenu()) return false;
+    await sleep(300);
+    return clickByText(label);
+  }
+
+  function clickNextSalesPage() {
+    const btns = document.querySelectorAll("button");
+    for (const b of btns) {
+      if (norm(b.textContent) === "Next") {
+        if (b.disabled) return false;
+        b.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
   globalThis.GA_ADAPTER = {
     version: ADAPTER_VERSION,
     util: { sleep, norm, bodyText, waitFor },
@@ -209,5 +297,6 @@
       clickByText,
     },
     writeback: { findBookingRow, executeCommand, AUTO_SAFE_ACTIONS },
+    sales: { onSalesPath, extractSalesRows, setSalesDateRange, clickNextSalesPage },
   };
 })();
