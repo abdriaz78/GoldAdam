@@ -4,13 +4,13 @@
  *
  * Provides:
  *   GA_ADAPTER.scrape.*    — read the bookings page (proven logic from the userscript)
- *   GA_ADAPTER.writeback.* — drive Confirm / Cancel / Complete + notes (GATED)
+ *   GA_ADAPTER.writeback.* — drive write-back commands into goldadam (GATED)
  *
- * NOTE: the write-back executor is a SAFE STUB. We have not yet mapped goldadam's
- * action UI (the flows behind "Start Purchase", "No Sell", "No Show", "Add Note",
- * and status changes). Until those are captured, executeCommand only performs a
- * dry-run: it locates the booking row and LOGS the intended steps without clicking
- * anything that mutates data. Fill in the TODO selectors after capture to go live.
+ * NOTE: only the "cancel" action (→ clicks "No Sell") has a live path, and it
+ * has only been verified via DOM inspection, never an actual click — see the
+ * comment on executeCommand's "cancel" branch. "complete" (Start Purchase)
+ * has no live path at all, intentionally: it fires a real transaction and
+ * must always be a human's own click. Everything else stays dry-run.
  */
 (function () {
   const ADAPTER_VERSION = "2026-08-07";
@@ -88,9 +88,9 @@
     return leaf;
   }
 
-  function clickByText(text) {
+  function clickByText(text, root = document) {
     const want = text.toLowerCase();
-    const els = document.querySelectorAll('button, a, [role="button"], input[type="submit"]');
+    const els = root.querySelectorAll('button, a, [role="button"], input[type="submit"]');
     for (const el of els) {
       const t = norm(el.textContent || el.value).toLowerCase();
       if (t === want || t.includes(want)) {
@@ -103,23 +103,49 @@
     return false;
   }
 
-  // ---- write-back (GATED, dry-run only until goldadam action UI is mapped) ----
+  // ---- write-back ----
+  // goldadam's real Pending-booking action UI (captured 2026-09-05 via live
+  // DOM inspection, no clicks — see SITE_NOTES.md): three sibling <button>s
+  // with exact accessible names "Start Purchase →", "No Sell", "No Show",
+  // alongside an "Add Note"/"Edit Note" button, all inside one container per
+  // booking. "Start Purchase" is a real transaction and is intentionally
+  // never driven from here.
+  const ACTION_LABELS = ["Start Purchase", "No Sell", "No Show", "Add Note", "Edit Note"];
 
-  // Find the DOM node for a specific customer's booking row.
+  function containerHasOwnActions(el) {
+    return ACTION_LABELS.some((label) => {
+      const want = label.toLowerCase();
+      return Array.from(el.querySelectorAll("button")).some((b) => norm(b.textContent).toLowerCase().includes(want));
+    });
+  }
+
+  // Find the DOM node scoped to one specific customer's booking — climbs from
+  // the matched text leaf only until it reaches an ancestor that itself
+  // contains that booking's own action buttons, then stops. Stopping as soon
+  // as those buttons are found (rather than a fixed hop count) matters
+  // because a multi-booking stop (e.g. 6 bookings under one Walmart stop)
+  // nests several bookings' rows under one shared container — climbing past
+  // the first row would make clickByText() hit a DIFFERENT customer's button.
   function findBookingRow(booking) {
     if (!booking) return null;
     const needle = (booking.customerName || booking.email || "").toLowerCase();
     if (!needle) return null;
     const all = document.querySelectorAll("body *");
+    let leaf = null;
     for (const el of all) {
       if (el.children.length === 0 && norm(el.textContent).toLowerCase().includes(needle)) {
-        // climb to a reasonably sized container that likely holds the action buttons
-        let node = el;
-        for (let k = 0; k < 6 && node?.parentElement; k++) node = node.parentElement;
-        return node;
+        leaf = el;
+        break;
       }
     }
-    return null;
+    if (!leaf) return null;
+
+    let node = leaf;
+    for (let k = 0; k < 8 && node?.parentElement; k++) {
+      node = node.parentElement;
+      if (containerHasOwnActions(node)) return node;
+    }
+    return node; // fallback: climbed to the top of the search without finding actions
   }
 
   /**
@@ -140,23 +166,34 @@
     // === DRY-RUN: describe intended steps, do not click anything mutating ===
     if (dryRun) {
       const steps = {
-        confirm: `Would open ${booking.customerName}'s row → set Confirmed → enter time slot "${timeSlot}" → save`,
-        cancel: `Would open ${booking.customerName}'s row → Cancel → add note "${note}" → save`,
-        complete: `Would open ${booking.customerName}'s row → Start Purchase / mark Completed → save`,
+        cancel: `Would click "No Sell" on ${booking.customerName}'s row${note ? ` (note: "${note}")` : ""}`,
+        complete: `Would click "Start Purchase →" for ${booking.customerName} — NEVER done automatically`,
       };
       return { success: true, dryRun: true, detail: `DRY-RUN: ${steps[action] || action}` };
     }
 
-    // === LIVE: TODO — fill these in after capturing goldadam's action UI ===
-    // Example shape (adjust selectors/labels to the real flows):
-    //   row.querySelector('[data-action="confirm"]').click();
-    //   await waitFor(() => document.querySelector('#confirm-modal'));
-    //   setSlot(timeSlot); addNote(note); clickByText('Save');
+    // === LIVE ===
+    // "complete" (Start Purchase) intentionally has no live path here, ever —
+    // content.js's AUTO_SAFE_ACTIONS allowlist already keeps the unattended
+    // daily run from calling this for it, but this stub is the hard backstop:
+    // there is no code path in this file that can click "Start Purchase →".
+    if (action === "cancel") {
+      const clicked = clickByText("No Sell", row);
+      if (!clicked) {
+        return { success: false, dryRun: false, detail: "Could not find 'No Sell' button in booking row" };
+      }
+      // Unverified: whether goldadam shows a confirmation dialog after this
+      // click, or a place to attach `note`, has not been tested live (that
+      // would mean actually mutating a real booking to find out). If a
+      // dialog/modal appears, a human running this via "Run write-backs"
+      // will see it in the tab; this executor does not yet try to handle one.
+      return { success: true, dryRun: false, detail: `Clicked "No Sell" for ${booking.customerName}` };
+    }
+
     return {
       success: false,
       dryRun: false,
-      detail:
-        "LIVE write-back not implemented yet — capture goldadam's Confirm/Cancel/Complete UI first.",
+      detail: `LIVE write-back not implemented for action "${action}" — only "cancel" (No Sell) is wired up.`,
     };
   }
 
