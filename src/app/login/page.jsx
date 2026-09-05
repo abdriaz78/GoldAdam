@@ -17,7 +17,7 @@ export default function LoginPage() {
     try {
       await api("/api/auth/login", { method: "POST", body: { email, password } });
       toast.success("Welcome back");
-      router.push("/bookings");
+      router.push("/dashboard");
       router.refresh();
     } catch (err) {
       toast.error(err.message);

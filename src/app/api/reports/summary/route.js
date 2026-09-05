@@ -1,6 +1,7 @@
 import { connectDB } from "@/lib/db";
 import Booking, { BOOKING_STATUSES } from "@/lib/models/Booking";
 import SalesTransaction from "@/lib/models/SalesTransaction";
+import Agent from "@/lib/models/Agent";
 import { requireUser } from "@/lib/auth";
 import { handler, ok } from "@/lib/api";
 
@@ -81,6 +82,9 @@ export const GET = handler(async (req) => {
     count: 0,
   };
 
+  // Per-agent leaderboard: only meaningful for the all-agents (admin) view.
+  const byAgent = scopeAgentId ? [] : await buildByAgent(bookingFilter, salesFilter);
+
   return ok({
     bookings: { total: bookingsTotal, byStatus: bookingsByStatus },
     sales: salesTotals,
@@ -88,5 +92,79 @@ export const GET = handler(async (req) => {
     dailyPayout: byDay
       .map((d) => ({ date: d._id || "(unknown)", payout: d.payout, count: d.count }))
       .sort((a, b) => (a.date < b.date ? -1 : 1)),
+    byAgent,
   });
 });
+
+/**
+ * Sales + booking-status totals grouped by agent, joined on agentId, with a
+ * close rate (sales / resolved bookings) and no-show rate computed per agent.
+ * Resolved = completed + no_show + no_sale (bookings that reached an outcome).
+ */
+async function buildByAgent(bookingFilter, salesFilter) {
+  const [salesByAgent, bookingsByAgent, agents] = await Promise.all([
+    SalesTransaction.aggregate([
+      { $match: salesFilter },
+      {
+        $group: {
+          _id: "$agentId",
+          payout: { $sum: "$payout" },
+          profit: { $sum: "$estProfit" },
+          avgMargin: { $avg: "$marginPercent" },
+          salesCount: { $sum: 1 },
+        },
+      },
+    ]),
+    Booking.aggregate([
+      { $match: bookingFilter },
+      { $group: { _id: { agentId: "$agentId", status: "$status" }, count: { $sum: 1 } } },
+    ]),
+    Agent.find({}).select("name").lean(),
+  ]);
+
+  const agentNames = Object.fromEntries(agents.map((a) => [String(a._id), a.name]));
+
+  const byAgentMap = {};
+  const ensure = (id) => {
+    const key = id ? String(id) : "unassigned";
+    if (!byAgentMap[key]) {
+      byAgentMap[key] = {
+        agentId: key === "unassigned" ? null : key,
+        name: key === "unassigned" ? "Unassigned" : agentNames[key] || "(unknown)",
+        payout: 0,
+        profit: 0,
+        avgMargin: 0,
+        salesCount: 0,
+        bookingsByStatus: Object.fromEntries(BOOKING_STATUSES.map((s) => [s, 0])),
+        bookingsTotal: 0,
+      };
+    }
+    return byAgentMap[key];
+  };
+
+  for (const row of salesByAgent) {
+    const entry = ensure(row._id);
+    entry.payout = row.payout || 0;
+    entry.profit = row.profit || 0;
+    entry.avgMargin = row.avgMargin || 0;
+    entry.salesCount = row.salesCount || 0;
+  }
+  for (const row of bookingsByAgent) {
+    const entry = ensure(row._id.agentId);
+    if (row._id.status in entry.bookingsByStatus) entry.bookingsByStatus[row._id.status] = row.count;
+    entry.bookingsTotal += row.count;
+  }
+
+  return Object.values(byAgentMap)
+    .filter((e) => e.agentId) // drop the "unassigned" bucket from the leaderboard
+    .map((e) => {
+      const resolved =
+        e.bookingsByStatus.completed + e.bookingsByStatus.no_show + e.bookingsByStatus.no_sale;
+      return {
+        ...e,
+        closeRate: resolved > 0 ? (e.salesCount / resolved) * 100 : 0,
+        noShowRate: resolved > 0 ? (e.bookingsByStatus.no_show / resolved) * 100 : 0,
+      };
+    })
+    .sort((a, b) => b.payout - a.payout);
+}

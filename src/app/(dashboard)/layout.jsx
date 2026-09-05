@@ -14,9 +14,11 @@ export default async function DashboardLayout({ children }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-stone-50 md:flex-row">
       <Nav user={safeUser} />
-      <main className="max-w-[1400px] mx-auto px-4 py-6">{children}</main>
+      <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:mx-auto md:max-w-[1400px] md:pb-6">
+        {children}
+      </main>
     </div>
   );
 }
