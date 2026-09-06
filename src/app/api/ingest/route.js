@@ -20,6 +20,7 @@ export const POST = handler(async (req) => {
   const body = await req.json();
   const pages = Array.isArray(body?.pages) ? body.pages : [];
   const structured = Array.isArray(body?.bookings) ? body.bookings : [];
+  const runId = body?.runId || "";
 
   // Flatten raw pages into structured rows.
   let rows = [...structured];
@@ -28,7 +29,17 @@ export const POST = handler(async (req) => {
     rows = rows.concat(parseBookingsText(page.routeCode, page.text));
   }
 
-  if (rows.length === 0) return ok({ upserted: 0, message: "No bookings found in payload" });
+  if (rows.length === 0) {
+    const routeCode = pages[0]?.routeCode || "";
+    await SyncLog.create({
+      runId,
+      type: "bookings_scrape",
+      status: "failed",
+      routeCode,
+      detail: "Page loaded but no bookings text was found — the route may have no stops today, or the page didn't finish rendering.",
+    });
+    return ok({ upserted: 0, message: "No bookings found in payload" });
+  }
 
   // Cache route+date -> agentId lookups.
   const assignmentCache = new Map();
@@ -88,10 +99,12 @@ export const POST = handler(async (req) => {
 
   const routeCodes = [...new Set(rows.map((r) => r.routeCode))];
   await SyncLog.create({
-    type: "ingest",
+    runId,
+    type: "bookings_scrape",
+    status: "success",
     routeCode: routeCodes.join(","),
     count: rows.length,
-    detail: `upserted=${res.upsertedCount || 0} modified=${res.modifiedCount || 0}`,
+    detail: `Scraped ${rows.length} booking(s) — ${res.upsertedCount || 0} new, ${res.modifiedCount || 0} updated.`,
   });
 
   return ok({

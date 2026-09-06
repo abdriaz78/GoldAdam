@@ -23,7 +23,16 @@ export const POST = handler(async (req) => {
   const body = await req.json();
   const raw = Array.isArray(body?.rows) ? body.rows : [];
   const forcedAgentId = body?.agentId || null;
-  if (raw.length === 0) return ok({ received: 0, message: "No sales rows in payload" });
+  const runId = body?.runId || "";
+  if (raw.length === 0) {
+    await SyncLog.create({
+      runId,
+      type: "sales_scrape",
+      status: "skipped",
+      detail: "No sales rows in payload — the date range genuinely had no sales, or the page didn't finish loading.",
+    });
+    return ok({ received: 0, message: "No sales rows in payload" });
+  }
 
   const parsed = raw.map(parseSalesRow).filter((r) => r.packageNumber);
 
@@ -59,9 +68,11 @@ export const POST = handler(async (req) => {
   const res = await SalesTransaction.bulkWrite(ops, { ordered: false });
 
   await SyncLog.create({
-    type: "sales_ingest",
+    runId,
+    type: "sales_scrape",
+    status: "success",
     count: parsed.length,
-    detail: `inserted=${res.upsertedCount || 0} modified=${res.modifiedCount || 0}`,
+    detail: `Scraped ${parsed.length} sale(s) — ${res.upsertedCount || 0} new, ${res.modifiedCount || 0} updated.`,
   });
 
   return ok({

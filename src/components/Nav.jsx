@@ -11,6 +11,7 @@ import {
   MapPin,
   Bell,
   BarChart3,
+  Activity,
   Menu,
   X,
   LogOut,
@@ -26,6 +27,7 @@ const ICONS = {
   assignments: MapPin,
   notifications: Bell,
   reports: BarChart3,
+  logs: Activity,
 };
 
 function navItems(isAdmin) {
@@ -39,7 +41,8 @@ function navItems(isAdmin) {
     items.push(
       { href: "/agents", key: "agents", label: "Agents" },
       { href: "/assignments", key: "assignments", label: "Assignments" },
-      { href: "/notifications", key: "notifications", label: "Notifications" }
+      { href: "/notifications", key: "notifications", label: "Notifications" },
+      { href: "/logs", key: "logs", label: "Automation Log" }
     );
   }
   return items;

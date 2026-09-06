@@ -15,7 +15,7 @@ export const POST = handler(async (req, ctx) => {
   await connectDB();
 
   const { id } = await ctx.params;
-  const { success, error = "", dryRun = false } = await req.json();
+  const { success, error = "", dryRun = false, runId = "" } = await req.json();
 
   const command = await WritebackCommand.findById(id);
   if (!command) return fail("Command not found", 404);
@@ -37,10 +37,12 @@ export const POST = handler(async (req, ctx) => {
   await command.save();
 
   await SyncLog.create({
+    runId,
     type: "writeback",
+    status: success ? "success" : "failed",
     routeCode: command.routeCode,
     count: 1,
-    detail: `${command.action} ${success ? "done" : "failed"}${dryRun ? " (dry-run)" : ""} ${error}`.trim(),
+    detail: `${command.action}${dryRun ? " (dry-run)" : ""}${success ? " — done" : " — failed: " + error}`.trim(),
   });
 
   return ok({ command });

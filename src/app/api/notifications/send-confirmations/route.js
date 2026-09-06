@@ -1,5 +1,6 @@
 import { connectDB } from "@/lib/db";
 import Booking from "@/lib/models/Booking";
+import SyncLog from "@/lib/models/SyncLog";
 import { requireAdmin } from "@/lib/auth";
 import { handler, ok, fail } from "@/lib/api";
 import { sendSms } from "@/lib/twilio";
@@ -20,11 +21,29 @@ function tomorrowISO(base = new Date()) {
 async function sendConfirmations({ date, resend }) {
   await connectDB();
 
+  try {
+    return await runSendConfirmations({ date, resend });
+  } catch (error) {
+    await SyncLog.create({
+      type: "sms_confirmations",
+      status: "failed",
+      detail: `Run for ${date} crashed: ${error?.message || "unknown error"}`,
+    });
+    throw error;
+  }
+}
+
+async function runSendConfirmations({ date, resend }) {
   const filter = { dateISO: date, status: "pending" };
   if (!resend) filter.confirmationRequestedAt = null;
 
   const bookings = await Booking.find(filter).populate("agentId").lean();
   if (bookings.length === 0) {
+    await SyncLog.create({
+      type: "sms_confirmations",
+      status: "skipped",
+      detail: `No pending bookings to confirm for ${date}.`,
+    });
     return { message: "No pending bookings to confirm for this date", date, sent: 0 };
   }
 
@@ -61,6 +80,26 @@ async function sendConfirmations({ date, resend }) {
       results.push({ bookingId: booking._id, sent: false, error: error?.message || "Twilio send failed" });
     }
   }
+
+  const skippedCount = results.filter((r) => r.skipped).length;
+  const failedCount = results.filter((r) => r.sent === false).length;
+  const reasons = results
+    .filter((r) => r.skipped || r.sent === false)
+    .map((r) => r.reason || r.error)
+    .filter(Boolean);
+  const uniqueReasons = [...new Set(reasons)];
+
+  await SyncLog.create({
+    type: "sms_confirmations",
+    status: failedCount > 0 && sentCount === 0 ? "failed" : "success",
+    count: sentCount,
+    detail:
+      `Sent ${sentCount}/${bookings.length} confirmation text(s) for ${date}` +
+      (skippedCount ? `, skipped ${skippedCount}` : "") +
+      (failedCount ? `, ${failedCount} Twilio send(s) failed` : "") +
+      (uniqueReasons.length ? ` — ${uniqueReasons.join("; ")}` : "") +
+      ".",
+  });
 
   return { date, sentCount, results };
 }

@@ -36,17 +36,31 @@ async function crmFetch(path, method = "GET", body) {
   }
 }
 
+// Same SyncLog the content script writes to — see the dashboard's Daily
+// Automation Log. `runId` ties every step of one daily run together.
+function logStep({ runId = "", type, status = "success", routeCode = "", count = 0, detail = "" }) {
+  return crmFetch("/api/sync-log", "POST", { runId, type, status, routeCode, count, detail }).catch(() => {});
+}
+
+function makeRunId() {
+  return new Date().toISOString().slice(0, 10) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
 // ---- scheduled unattended run ----
 // Drives the same tab a human would normally open by hand, just on a timer.
 // Requires a real, already-running Chrome (this extension's own process) —
 // see SITE_NOTES.md on why a script-launched browser can't reach goldadam
 // at all. The daily run only ever triggers scraping + the AUTO_SAFE_ACTIONS
 // allowlist (see adapter.js) — "Start Purchase" is never part of it.
+// Bookings finishing (AUTO_RUN_DONE, below) chains into a sales sync
+// (AUTO_RUN_SALES) on the same tab, then AUTO_RUN_SALES_DONE closes out
+// the daily_run log entry — one run, one runId, start to finish.
 
 const DAILY_ALARM = "ga_daily_run";
 const GOLDADAM_ORIGIN = "https://agent.goldadam.us";
 const RUN_HOUR_UTC = 12; // ~7am Central — adjust to taste
 const RUN_MINUTE_UTC = 0;
+const DAILY_SALES_RANGE = "Last Week"; // matches the scraper's own daily-vs-backfill guidance
 
 function nextRunTime() {
   const now = new Date();
@@ -91,14 +105,22 @@ function waitForTabComplete(tabId) {
 }
 
 async function runDailyAutoSync() {
+  const runId = makeRunId();
+  await logStep({ runId, type: "daily_run", status: "started", detail: "Daily auto-run triggered by chrome.alarms." });
+
   const routesRes = await crmFetch("/api/routes");
   if (!routesRes.ok) {
-    console.warn("[GA-EXT] daily run: couldn't fetch routes from CRM —", routesRes.error);
+    await logStep({
+      runId,
+      type: "daily_run",
+      status: "failed",
+      detail: `Couldn't fetch the route list from the CRM: ${routesRes.error}`,
+    });
     return;
   }
   const routeCodes = (routesRes.data.routes || []).map((r) => r.code).filter(Boolean);
   if (!routeCodes.length) {
-    console.warn("[GA-EXT] daily run: no routes returned by CRM, nothing to sync");
+    await logStep({ runId, type: "daily_run", status: "failed", detail: "CRM returned no routes to sync." });
     return;
   }
 
@@ -109,9 +131,14 @@ async function runDailyAutoSync() {
   await chrome.tabs.update(tab.id, { url: `${GOLDADAM_ORIGIN}/start/route` });
   await waitForTabComplete(tab.id);
 
-  chrome.tabs.sendMessage(tab.id, { type: "AUTO_RUN", routes: routeCodes }, () => {
+  chrome.tabs.sendMessage(tab.id, { type: "AUTO_RUN", routes: routeCodes, runId }, () => {
     if (chrome.runtime.lastError) {
-      console.warn("[GA-EXT] daily run: content script didn't respond —", chrome.runtime.lastError.message);
+      logStep({
+        runId,
+        type: "daily_run",
+        status: "failed",
+        detail: `Content script on the tab didn't respond: ${chrome.runtime.lastError.message}`,
+      });
     }
   });
 }
@@ -119,6 +146,30 @@ async function runDailyAutoSync() {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === DAILY_ALARM) {
     runDailyAutoSync().catch((e) => console.error("[GA-EXT] daily run failed:", e));
+  }
+});
+
+// Bookings loop (content.js) finished for every route — chain straight into
+// a sales sync on the same tab, same runId, so one daily run covers both.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type === "AUTO_RUN_DONE" && sender?.tab?.id) {
+    chrome.tabs.sendMessage(
+      sender.tab.id,
+      { type: "AUTO_RUN_SALES", dateRangeLabel: DAILY_SALES_RANGE, runId: msg.runId },
+      () => {
+        if (chrome.runtime.lastError) {
+          logStep({
+            runId: msg.runId,
+            type: "daily_run",
+            status: "failed",
+            detail: `Bookings done, but couldn't start sales sync: ${chrome.runtime.lastError.message}`,
+          });
+        }
+      }
+    );
+  }
+  if (msg?.type === "AUTO_RUN_SALES_DONE") {
+    logStep({ runId: msg.runId, type: "daily_run", status: "success", detail: "Daily run finished (bookings + sales)." });
   }
 });
 

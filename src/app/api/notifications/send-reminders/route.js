@@ -2,6 +2,7 @@ import { connectDB } from "@/lib/db";
 import Agent from "@/lib/models/Agent";
 import Booking from "@/lib/models/Booking";
 import RouteAssignment from "@/lib/models/RouteAssignment";
+import SyncLog from "@/lib/models/SyncLog";
 import { requireAdmin } from "@/lib/auth";
 import { handler, ok, fail } from "@/lib/api";
 import { sendSms } from "@/lib/twilio";
@@ -16,8 +17,28 @@ function tomorrowISO(base = new Date()) {
 async function sendReminders({ date }) {
   await connectDB();
 
+  try {
+    return await runSendReminders({ date });
+  } catch (error) {
+    await SyncLog.create({
+      type: "sms_reminders",
+      status: "failed",
+      detail: `Run for ${date} crashed: ${error?.message || "unknown error"}`,
+    });
+    throw error;
+  }
+}
+
+async function runSendReminders({ date }) {
   const assignments = await RouteAssignment.find({ date }).populate("agentId").lean();
-  if (assignments.length === 0) return { message: "No route assignments for this date", date, sent: 0 };
+  if (assignments.length === 0) {
+    await SyncLog.create({
+      type: "sms_reminders",
+      status: "skipped",
+      detail: `No route assignments for ${date}.`,
+    });
+    return { message: "No route assignments for this date", date, sent: 0 };
+  }
 
   const agentGroups = new Map();
   const results = [];
@@ -69,6 +90,26 @@ async function sendReminders({ date }) {
       results.push({ agentId: agent._id, sent: false, routeCodes, error: error?.message || "Twilio send failed" });
     }
   }
+
+  const skippedCount = results.filter((r) => r.skipped).length;
+  const failedCount = results.filter((r) => r.sent === false).length;
+  const reasons = results
+    .filter((r) => r.skipped || r.sent === false)
+    .map((r) => r.reason || r.error)
+    .filter(Boolean);
+  const uniqueReasons = [...new Set(reasons)];
+
+  await SyncLog.create({
+    type: "sms_reminders",
+    status: failedCount > 0 && sentCount === 0 ? "failed" : "success",
+    count: sentCount,
+    detail:
+      `Sent ${sentCount}/${agentGroups.size} agent reminder(s) for ${date}` +
+      (skippedCount ? `, skipped ${skippedCount}` : "") +
+      (failedCount ? `, ${failedCount} Twilio send(s) failed` : "") +
+      (uniqueReasons.length ? ` — ${uniqueReasons.join("; ")}` : "") +
+      ".",
+  });
 
   return { date, assignedAgents: agentGroups.size, sentCount, results };
 }

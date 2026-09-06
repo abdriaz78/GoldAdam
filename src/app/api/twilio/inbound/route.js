@@ -2,6 +2,7 @@ import twilioSdk from "twilio";
 import { connectDB } from "@/lib/db";
 import Booking from "@/lib/models/Booking";
 import WritebackCommand from "@/lib/models/WritebackCommand";
+import SyncLog from "@/lib/models/SyncLog";
 import { last10Digits, classifyYesNo } from "@/lib/twilio";
 
 const { validateRequest, twiml } = twilioSdk;
@@ -67,11 +68,22 @@ export async function POST(req) {
 
   const booking = candidates.find((b) => last10Digits(b.phone) === fromDigits && fromDigits);
   if (!booking) {
+    await SyncLog.create({
+      type: "sms_confirmations",
+      status: "skipped",
+      detail: `Reply from ${from} ("${bodyText}") didn't match any pending, awaiting-reply booking.`,
+    });
     return twimlReply("We couldn't find a pending appointment for this number. Please call us if you need help.");
   }
 
   const answer = classifyYesNo(bodyText);
   if (!answer) {
+    await SyncLog.create({
+      type: "sms_confirmations",
+      status: "skipped",
+      routeCode: booking.routeCode,
+      detail: `Couldn't classify ${booking.customerName}'s reply ("${bodyText}") as YES or NO.`,
+    });
     return twimlReply("Sorry, we didn't catch that. Please reply YES to confirm or NO to cancel your appointment.");
   }
 
@@ -93,6 +105,12 @@ export async function POST(req) {
         },
       }
     );
+    await SyncLog.create({
+      type: "sms_confirmations",
+      status: "success",
+      routeCode: booking.routeCode,
+      detail: `${booking.customerName} replied YES — booking confirmed.`,
+    });
     return twimlReply("Thanks! Your appointment is confirmed.");
   }
 
@@ -114,6 +132,12 @@ export async function POST(req) {
     note: `Customer declined via SMS reply: "${bodyText}"`,
     dryRun: true,
     status: "queued",
+  });
+  await SyncLog.create({
+    type: "sms_confirmations",
+    status: "success",
+    routeCode: booking.routeCode,
+    detail: `${booking.customerName} replied NO — booking cancelled, "No Sell" queued for next auto-run.`,
   });
   return twimlReply("Got it, we've cancelled your appointment. Reply to this number if you'd like to reschedule.");
 }

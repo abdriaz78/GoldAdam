@@ -27,7 +27,7 @@
   const getSalesRun = () =>
     new Promise((res) =>
       chrome.storage.local.get(SALES_RUN_KEY, (o) =>
-        res(o[SALES_RUN_KEY] || { active: false, dateRangeLabel: "Last Week" })
+        res(o[SALES_RUN_KEY] || { active: false, dateRangeLabel: "Last Week", auto: false, runId: "" })
       )
     );
   const setSalesRun = (v) => new Promise((res) => chrome.storage.local.set({ [SALES_RUN_KEY]: v }, res));
@@ -48,6 +48,15 @@
     console.log("[GA-EXT]", msg);
     const box = document.getElementById("gaext-log");
     if (box) box.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n` + box.textContent;
+  }
+
+  // Persists one step of an automated run to the CRM's SyncLog (visible on
+  // the dashboard's Daily Automation Log) — separate from the on-page panel
+  // log above, which disappears the moment the tab closes.
+  function logStep({ runId = "", type, status = "success", routeCode = "", count = 0, detail = "" }) {
+    return cf("/api/sync-log", "POST", { runId, type, status, routeCode, count, detail }).catch((e) =>
+      console.warn("[GA-EXT] logStep failed:", e.message)
+    );
   }
 
   function buildPanel() {
@@ -140,18 +149,19 @@
   // Kicked off by background.js's daily chrome.alarms trigger — same state
   // machine as a manual "Sync routes" click, plus auto-executing only the
   // AUTO_SAFE_ACTIONS-allowlisted write-backs per route as it goes (never
-  // Start Purchase — see adapter.js).
-  async function startAutoSync(routes) {
+  // Start Purchase — see adapter.js). `runId` ties every step logged during
+  // this run together for the dashboard's Daily Automation Log.
+  async function startAutoSync(routes, runId = "") {
     if (!routes || !routes.length) return log("Auto-run: no routes provided by CRM.");
-    await setRun({ active: true, queue: routes, current: null, auto: true });
+    await setRun({ active: true, queue: routes, current: null, auto: true, runId });
     log("▶ Auto-run started: " + routes.join(", "));
     tick();
   }
 
-  async function ingestCurrent(code) {
+  async function ingestCurrent(code, runId = "") {
     const text = bodyText();
     if (!/Total Bookings|Stops/i.test(text)) return false;
-    const res = await cf("/api/ingest", "POST", { pages: [{ routeCode: code, text }] });
+    const res = await cf("/api/ingest", "POST", { pages: [{ routeCode: code, text }], runId });
     log(`✔ Ingested ${code}: received ${res.received}, inserted ${res.inserted}, modified ${res.modified}`);
     return true;
   }
@@ -159,7 +169,7 @@
   // autoOnly restricts execution to adapter.js's AUTO_SAFE_ACTIONS allowlist
   // (used by the unattended daily run); the manual "Run write-backs" button
   // runs everything queued, including the human-only Start Purchase action.
-  async function executeWritebacksForRoute(code, { autoOnly = false } = {}) {
+  async function executeWritebacksForRoute(code, { autoOnly = false, runId = "" } = {}) {
     try {
       const { commands } = await cf(`/api/commands?routes=${encodeURIComponent(code)}`);
       if (!commands.length) return log(`No queued write-backs for ${code}.`);
@@ -180,11 +190,13 @@
           success: result.success,
           error: result.detail,
           dryRun: result.dryRun,
+          runId,
         });
         log(`${result.success ? "✔" : "✖"} ${cmd.action} ${cmd.booking?.customerName || ""} — ${result.detail}`);
       }
     } catch (e) {
       log("Write-back error: " + e.message);
+      await logStep({ runId, type: "writeback", status: "failed", routeCode: code, detail: e.message });
     }
   }
 
@@ -199,8 +211,8 @@
   // is tracked in storage (SALES_RUN_KEY) rather than a local variable, the
   // same pattern as the bookings RUN_KEY — salesTick() picks up where it left
   // off after boot() re-runs on the new page.
-  async function startSalesSync(dateRangeLabel = "Last Week") {
-    await setSalesRun({ active: true, dateRangeLabel });
+  async function startSalesSync(dateRangeLabel = "Last Week", { auto = false, runId = "" } = {}) {
+    await setSalesRun({ active: true, dateRangeLabel, auto, runId });
     log(`▶ Sales sync started (${dateRangeLabel})`);
     if (A.sales.onSalesPath()) {
       salesTick();
@@ -218,7 +230,12 @@
       const gotTable = await waitFor(() => !!document.querySelector("table"), 20000);
       if (!gotTable) {
         log("Sales sync: no table found on /sales — stopping.");
-        await setSalesRun({ active: false, dateRangeLabel: run.dateRangeLabel });
+        await logStep({
+          runId: run.runId,
+          type: "sales_scrape",
+          status: "failed",
+          detail: "No table appeared on /sales after 20s.",
+        });
         return;
       }
       await sleep(500);
@@ -261,14 +278,16 @@
 
       log(`Sales sync: scraped ${rows.length} row(s) across ${pageNum} page(s). Ingesting…`);
       if (rows.length) {
-        const res = await cf("/api/sales/ingest", "POST", { rows });
+        const res = await cf("/api/sales/ingest", "POST", { rows, runId: run.runId });
         log(`✔ Sales ingested: received ${res.received}, inserted ${res.inserted}, modified ${res.modified}`);
       }
       log("🎉 Sales sync complete");
     } catch (e) {
       log("Sales sync error: " + e.message);
+      await logStep({ runId: run.runId, type: "sales_scrape", status: "failed", detail: e.message });
     } finally {
       await setSalesRun({ active: false, dateRangeLabel: run.dateRangeLabel });
+      if (run.auto) chrome.runtime.sendMessage({ type: "AUTO_RUN_SALES_DONE", runId: run.runId });
       salesBusy = false;
     }
   }
@@ -282,9 +301,9 @@
       if (A.scrape.onBookingsPath()) {
         await waitFor(() => /Total Bookings|Stops/i.test(bodyText()), 20000);
         const code = run.current || A.scrape.pageRouteCode();
-        if (code) await ingestCurrent(code).catch((e) => log("Ingest error: " + e.message));
+        if (code) await ingestCurrent(code, run.runId).catch((e) => log("Ingest error: " + e.message));
         if (code && run.auto) {
-          await executeWritebacksForRoute(code, { autoOnly: true }).catch((e) =>
+          await executeWritebacksForRoute(code, { autoOnly: true, runId: run.runId }).catch((e) =>
             log("Auto write-back error: " + e.message)
           );
         }
@@ -295,6 +314,9 @@
           await setRun(run);
           if (run.queue.length === 0) {
             log("🎉 Sync complete");
+            if (run.auto) {
+              chrome.runtime.sendMessage({ type: "AUTO_RUN_DONE", runId: run.runId });
+            }
             await setRun({ active: false, queue: [], current: null });
           } else {
             cool(4000);
@@ -327,6 +349,14 @@
         const found = await waitFor(() => A.scrape.findRouteClickable(next) !== null, 20000);
         if (!found) {
           log(`❌ Route ${next} not found — stopping.`);
+          await logStep({
+            runId: run.runId,
+            type: "bookings_scrape",
+            status: "failed",
+            routeCode: next,
+            detail: `Route "${next}" didn't appear on the "Select Your Route" page after 20s.`,
+          });
+          if (run.auto) chrome.runtime.sendMessage({ type: "AUTO_RUN_DONE", runId: run.runId });
           await setRun({ active: false, queue: [], current: null });
           return;
         }
@@ -343,12 +373,12 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === "AUTO_RUN") {
-      startAutoSync(msg.routes || []);
+      startAutoSync(msg.routes || [], msg.runId || "");
       sendResponse({ ok: true });
       return true;
     }
     if (msg?.type === "AUTO_RUN_SALES") {
-      startSalesSync(msg.dateRangeLabel || "Last Week");
+      startSalesSync(msg.dateRangeLabel || "Last Week", { auto: true, runId: msg.runId || "" });
       sendResponse({ ok: true });
       return true;
     }
