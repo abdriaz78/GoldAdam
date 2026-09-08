@@ -16,7 +16,7 @@ export async function sendAlert(message) {
   }
 
   try {
-    await sendSms({ from, to, body: `[Gold Adam scraper] ${message}` });
+    await sendSms({ from, to, body: `[Goldroute scraper] ${message}` });
   } catch (e) {
     console.error("[scraper][alert] failed to send alert SMS:", e?.message || e);
   }

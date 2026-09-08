@@ -1,4 +1,4 @@
-# Gold Adam CRM (MVP)
+# Goldroute (MVP)
 
 Bookings viewer + two-way sync for Gold Adam routes.
 
@@ -37,7 +37,7 @@ npm run import:csv          # reads ../goldadam-bookings.csv
 2. Click the extension icon → enter **CRM URL** (`http://localhost:3000`) + your CRM
    login → **Sign in**.
 3. Open `agent.goldadam.us` (VPN on, past the checkpoint). Use the on-page
-   **Gold Adam CRM Sync** panel: enter route codes → **Sync routes** (scrapes each
+   **Goldroute Sync** panel: enter route codes → **Sync routes** (scrapes each
    route's bookings into the CRM). **Run write-backs** executes queued status changes
    for the current route (dry-run until adapter is completed).
 

@@ -1,14 +1,54 @@
 @import "tailwindcss";
 
+@theme {
+  --color-ink: #10141b;
+  --color-panel: #1a2029;
+  --color-panel-raised: #212a36;
+  --color-border: #2a3341;
+  --color-text: #eef1f5;
+  --color-muted: #8791a0;
+  --color-muted-dim: #5e6673;
+  --color-gold: #c6a052;
+  --color-gold-dim: #7a6636;
+  --color-green: #4f9d6e;
+  --color-green-dim: #2a4536;
+  --color-amber: #d99a46;
+  --color-amber-dim: #4a3a22;
+  --color-red: #c1554b;
+  --color-red-dim: #4a2622;
+  --color-blue: #7fa6d9;
+  --color-blue-dim: #22344a;
+
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), "Fraunces", ui-serif, Georgia, serif;
+}
+
 html,
 body {
   padding: 0;
   margin: 0;
-  background: #fafaf9;
-  color: #1c1917;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: var(--color-gold-dim);
+  color: var(--color-text);
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  color-scheme: dark;
+}
+
+::placeholder {
+  color: var(--color-muted-dim);
 }

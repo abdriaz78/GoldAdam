@@ -6,11 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   CalendarCheck,
-  DollarSign,
   Users,
   MapPin,
-  Bell,
   BarChart3,
+  ShoppingBag,
+  ListChecks,
+  Workflow,
+  Truck,
   Activity,
   Menu,
   X,
@@ -22,35 +24,38 @@ import { cn } from "@/lib/utils";
 const ICONS = {
   dashboard: LayoutDashboard,
   bookings: CalendarCheck,
-  sales: DollarSign,
   agents: Users,
   assignments: MapPin,
-  notifications: Bell,
   reports: BarChart3,
+  sales: ShoppingBag,
+  leads: ListChecks,
+  workflows: Workflow,
+  fleet: Truck,
   logs: Activity,
 };
 
 function navItems(isAdmin) {
-  const items = [
-    { href: "/dashboard", key: "dashboard", label: "Dashboard" },
-    { href: "/bookings", key: "bookings", label: "Bookings" },
-    { href: "/sales", key: "sales", label: "Sales" },
-    { href: "/reports", key: "reports", label: "Reports" },
-  ];
-  if (isAdmin) {
-    items.push(
-      { href: "/agents", key: "agents", label: "Agents" },
-      { href: "/assignments", key: "assignments", label: "Assignments" },
-      { href: "/notifications", key: "notifications", label: "Notifications" },
-      { href: "/logs", key: "logs", label: "Automation Log" }
-    );
+  if (!isAdmin) {
+    return [
+      { href: "/dashboard", key: "dashboard", label: "My Dashboard" },
+      { href: "/bookings", key: "bookings", label: "My Appointments" },
+      { href: "/leads", key: "leads", label: "My Leads (VCR)" },
+      { href: "/reports", key: "reports", label: "My Stats" },
+    ];
   }
-  return items;
+  return [
+    { href: "/dashboard", key: "dashboard", label: "Dashboard" },
+    { href: "/bookings", key: "bookings", label: "Appointments" },
+    { href: "/agents", key: "agents", label: "Field Agents" },
+    { href: "/assignments", key: "assignments", label: "Assignments" },
+    { href: "/reports", key: "reports", label: "Stats & Reports" },
+    { href: "/sales", key: "sales", label: "Purchases" },
+    { href: "/leads", key: "leads", label: "Leads (VCR)" },
+    { href: "/workflows", key: "workflows", label: "Workflows" },
+    { href: "/fleet", key: "fleet", label: "Fleet" },
+    { href: "/logs", key: "logs", label: "Scraper Health" },
+  ];
 }
-
-// Bottom tab bar only has room for a handful of items — same set for both
-// roles, the rest live in the drawer behind "More".
-const BOTTOM_KEYS = ["dashboard", "bookings", "sales", "reports"];
 
 export default function Nav({ user }) {
   const pathname = usePathname();
@@ -66,7 +71,7 @@ export default function Nav({ user }) {
   }
 
   const NavLinks = ({ onNavigate }) => (
-    <nav className="flex flex-1 flex-col gap-1">
+    <nav className="flex flex-1 flex-col gap-0.5 px-2.5">
       {items.map((item) => {
         const Icon = ICONS[item.key];
         const active = pathname === item.href;
@@ -76,13 +81,11 @@ export default function Nav({ user }) {
             href={item.href}
             onClick={onNavigate}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-stone-300 transition-colors",
-              active
-                ? "bg-stone-800 text-white shadow-[inset_3px_0_0_0_theme(colors.amber.600)]"
-                : "hover:bg-stone-800/70 hover:text-white"
+              "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors",
+              active ? "bg-panel-raised text-text" : "text-muted hover:bg-panel hover:text-text"
             )}
           >
-            <Icon size={17} strokeWidth={2} />
+            <Icon size={16} strokeWidth={2} className={active ? "text-gold" : ""} />
             {item.label}
           </Link>
         );
@@ -92,23 +95,25 @@ export default function Nav({ user }) {
 
   const SidebarBody = ({ onNavigate }) => (
     <>
-      <div className="flex items-center gap-2.5 px-2 pb-5 pt-1 text-white">
-        <div className="grid h-8 w-8 place-items-center rounded-lg bg-amber-600 text-sm font-bold">
-          G
+      <div className="border-b border-border px-5 pb-[22px]">
+        <div className="font-serif text-[20px] font-semibold text-gold">Goldroute</div>
+        <div className="mt-0.5 text-[11px] text-muted-dim">
+          {isAdmin ? "Admin · Goldroute" : "Agent view"}
         </div>
-        <span className="font-semibold">Gold Adam CRM</span>
       </div>
-      <NavLinks onNavigate={onNavigate} />
-      <div className="mt-auto space-y-1 border-t border-stone-800 pt-3">
+      <div className="mt-3">
+        <NavLinks onNavigate={onNavigate} />
+      </div>
+      <div className="mt-auto space-y-1 border-t border-border px-2.5 pt-3">
         <button
           onClick={logout}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-stone-300 hover:bg-stone-800/70 hover:text-white"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] font-medium text-muted hover:bg-panel hover:text-text"
         >
-          <LogOut size={17} strokeWidth={2} />
+          <LogOut size={16} strokeWidth={2} />
           Sign out
         </button>
-        <div className="px-3 py-1.5 text-xs text-stone-500">
-          <div className="font-medium text-stone-300">{user.name || user.email}</div>
+        <div className="px-3 py-1.5 text-[11px] text-muted-dim">
+          <div className="font-medium text-muted">{user.name || user.email}</div>
           <div className="capitalize">{user.role}</div>
         </div>
       </div>
@@ -118,39 +123,31 @@ export default function Nav({ user }) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-stone-900 px-3 py-4 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-[222px] shrink-0 flex-col border-r border-border bg-[#0C0F14] py-5 md:flex">
         <SidebarBody />
       </aside>
 
       {/* Mobile top bar */}
-      <header className="flex h-14 items-center gap-3 border-b border-stone-200 bg-white px-4 md:hidden">
+      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-ink px-4 md:hidden">
         <button
           onClick={() => setDrawerOpen(true)}
           aria-label="Open menu"
-          className="grid h-9 w-9 place-items-center rounded-lg border border-stone-200"
+          className="grid h-9 w-9 place-items-center rounded-lg border border-border text-text"
         >
           <Menu size={18} />
         </button>
-        <div className="flex items-center gap-2 font-semibold text-stone-900">
-          <div className="grid h-7 w-7 place-items-center rounded-md bg-amber-600 text-xs font-bold text-white">
-            G
-          </div>
-          Gold Adam CRM
-        </div>
+        <div className="font-serif text-[17px] font-semibold text-gold">Goldroute</div>
       </header>
 
       {/* Mobile drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
-          <div
-            className="absolute inset-0 bg-stone-900/50"
-            onClick={() => setDrawerOpen(false)}
-          />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-stone-900 px-3 py-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-[250px] flex-col bg-[#0C0F14] py-5 shadow-2xl">
             <button
               onClick={() => setDrawerOpen(false)}
               aria-label="Close menu"
-              className="absolute right-3 top-4 grid h-8 w-8 place-items-center rounded-lg text-stone-400 hover:bg-stone-800"
+              className="absolute right-3 top-4 grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-panel"
             >
               <X size={18} />
             </button>
@@ -158,36 +155,6 @@ export default function Nav({ user }) {
           </aside>
         </div>
       )}
-
-      {/* Mobile bottom tab bar */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-stone-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
-        {items
-          .filter((i) => BOTTOM_KEYS.includes(i.key))
-          .map((item) => {
-            const Icon = ICONS[item.key];
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex min-w-16 flex-col items-center gap-1 px-2 py-2 text-[10px]",
-                  active ? "font-semibold text-amber-700" : "text-stone-500"
-                )}
-              >
-                <Icon size={18} strokeWidth={2} />
-                {item.label}
-              </Link>
-            );
-          })}
-        <button
-          onClick={() => setDrawerOpen(true)}
-          className="flex min-w-16 flex-col items-center gap-1 px-2 py-2 text-[10px] text-stone-500"
-        >
-          <Menu size={18} strokeWidth={2} />
-          More
-        </button>
-      </nav>
     </>
   );
 }

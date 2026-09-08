@@ -27,39 +27,36 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm bg-white border border-slate-200 rounded-xl shadow-sm p-6 space-y-4"
-      >
+    <div className="flex min-h-screen items-center justify-center bg-ink px-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-border bg-panel p-6">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Gold Adam CRM</h1>
-          <p className="text-sm text-slate-500">Sign in to continue</p>
+          <div className="font-serif text-2xl font-semibold text-gold">Goldroute</div>
+          <p className="mt-1 text-sm text-muted">Sign in to continue</p>
         </div>
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-700">Email</label>
+          <label className="text-sm font-medium text-text">Email</label>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-border bg-[#161C25] px-3 py-2 text-sm text-text outline-none focus:ring-1 focus:ring-gold-dim"
             required
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-700">Password</label>
+          <label className="text-sm font-medium text-text">Password</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-border bg-[#161C25] px-3 py-2 text-sm text-text outline-none focus:ring-1 focus:ring-gold-dim"
             required
           />
         </div>
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-blue-600 text-white py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+          className="w-full rounded-lg bg-gold py-2 text-sm font-semibold text-[#1A1305] hover:bg-[#d4ad5a] disabled:opacity-60"
         >
           {loading ? "Signing in…" : "Sign in"}
         </button>

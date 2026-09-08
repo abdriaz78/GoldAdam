@@ -4,7 +4,22 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { api } from "@/lib/client";
-import StatusBadge from "@/components/StatusBadge";
+import StatusChip from "@/components/StatusBadge";
+import {
+  PageHeader,
+  Content,
+  SectionHead,
+  Card,
+  StatTile,
+  TileGrid,
+  FlagBadge,
+  TABLE_WRAP,
+  THEAD,
+  TH,
+  TD,
+  TR_HOVER,
+  EmptyState,
+} from "@/components/ui";
 
 const money = (n) => `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 const pct = (n) => `${Number(n || 0).toFixed(1)}%`;
@@ -82,229 +97,203 @@ export default function DashboardPage() {
     const worstClose = [...active].sort((a, b) => a.closeRate - b.closeRate)[0];
     if (worstClose && worstClose.closeRate < teamAvgClose - 10) {
       out.push({
-        title: worstClose.name,
-        detail: `Close rate ${pct(worstClose.closeRate)} · ${(teamAvgClose - worstClose.closeRate).toFixed(
-          0
-        )} pts below team avg`,
+        title: "Close rate falling",
+        name: worstClose.name,
+        rule: "Rule: close rate 10+ pts below team average",
+        detail: `${pct(worstClose.closeRate)} · ${(teamAvgClose - worstClose.closeRate).toFixed(0)} pts below team avg (${pct(teamAvgClose)})`,
       });
     }
 
     const worstNoShow = [...active].sort((a, b) => b.noShowRate - a.noShowRate)[0];
     if (worstNoShow && worstNoShow.noShowRate > 15 && worstNoShow.name !== worstClose?.name) {
-      out.push({ title: worstNoShow.name, detail: `No-show rate ${pct(worstNoShow.noShowRate)} this month` });
+      out.push({
+        title: "No-show rate high",
+        name: worstNoShow.name,
+        rule: "Rule: no-show rate above 15%",
+        detail: `No-show rate ${pct(worstNoShow.noShowRate)} this month`,
+      });
     }
 
     const noSales = active.find((a) => a.salesCount === 0);
     if (noSales && out.length < 3) {
-      out.push({ title: noSales.name, detail: "No purchases yet this month" });
+      out.push({
+        title: "No purchases this month",
+        name: noSales.name,
+        rule: "Rule: zero purchases with 3+ bookings",
+        detail: `${noSales.bookingsTotal} bookings, 0 purchases`,
+      });
     }
 
     return out.slice(0, 3);
   }, [teamAvgClose, mtd]);
 
   if (loading || !today || !mtd) {
-    return <div className="py-12 text-center text-stone-400">Loading…</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center text-muted-dim">Loading…</div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-stone-900">
-          {isAdmin ? "Dashboard" : `Good morning, ${(me?.name || "").split(" ")[0] || "there"}`}
-        </h1>
-        <p className="text-sm text-stone-500">
-          {new Date().toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })}
-        </p>
-      </div>
+    <>
+      <PageHeader
+        title={isAdmin ? "Dashboard" : `Good morning, ${(me?.name || "").split(" ")[0] || "there"}`}
+        subtitle={new Date().toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })}
+      />
+      <Content>
+        <div>
+          <Card className="!p-0">
+            <div className="px-6 pb-1 pt-5">
+              <SectionHead title="Today" subtitle="Live" />
+            </div>
+            <TileGrid className="grid-cols-2 gap-0 px-4 pb-5 sm:grid-cols-3 lg:grid-cols-6">
+              <StatTile label="Bookings" value={today.bookings.total} />
+              <StatTile label="Confirmed" value={today.bookings.byStatus.confirmed} />
+              <StatTile label="No-shows" value={today.bookings.byStatus.no_show} />
+              <StatTile label="Purchases" value={today.sales.count} />
+              <StatTile label="Payout" value={money(today.sales.totalPayout)} gold />
+              <StatTile label="Est. profit" value={money(today.sales.totalProfit)} gold />
+            </TileGrid>
+          </Card>
+        </div>
 
-      <Section label="Today">
-        <TileGrid>
-          <Tile label="Bookings" value={today.bookings.total} />
-          <Tile label="Confirmed" value={today.bookings.byStatus.confirmed} />
-          <Tile label="No-shows" value={today.bookings.byStatus.no_show} />
-          <Tile label="Purchases" value={today.sales.count} />
-          <Tile label="Payout" value={money(today.sales.totalPayout)} />
-          <Tile label="Est. profit" value={money(today.sales.totalProfit)} />
-        </TileGrid>
-      </Section>
+        <div>
+          <SectionHead title="Month to date" />
+          <TileGrid>
+            <StatTile label="Booked" value={mtd.bookings.total} />
+            <StatTile label="Confirmed" value={mtd.bookings.byStatus.confirmed} />
+            <StatTile label="Purchases" value={mtd.sales.count} />
+            <StatTile label="Payout" value={money(mtd.sales.totalPayout)} gold />
+            <StatTile label="Est. profit" value={money(mtd.sales.totalProfit)} gold />
+            <StatTile label="Avg margin" value={pct(mtd.sales.avgMargin)} />
+          </TileGrid>
+        </div>
 
-      <Section label="Month to date">
-        <TileGrid>
-          <Tile label="Booked" value={mtd.bookings.total} />
-          <Tile label="Confirmed" value={mtd.bookings.byStatus.confirmed} />
-          <Tile label="Purchases" value={mtd.sales.count} />
-          <Tile label="Payout" value={money(mtd.sales.totalPayout)} />
-          <Tile label="Est. profit" value={money(mtd.sales.totalProfit)} />
-          <Tile label="Avg margin" value={pct(mtd.sales.avgMargin)} />
-        </TileGrid>
-      </Section>
-
-      {isAdmin && alerts.length > 0 && (
-        <Section label="Needs attention">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {alerts.map((a, i) => (
-              <Link
-                key={i}
-                href="/agents"
-                className="rounded-xl border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100"
-              >
-                <h4 className="text-sm font-semibold text-stone-900">{a.title}</h4>
-                <p className="mt-1 text-sm text-rose-700">{a.detail}</p>
-              </Link>
-            ))}
+        {isAdmin && alerts.length > 0 && (
+          <div>
+            <SectionHead title="Needs attention" subtitle="Auto-flagged from Field Agents rules" />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {alerts.map((a, i) => (
+                <Link
+                  key={i}
+                  href="/agents"
+                  className="rounded-xl border border-[#5C332C] bg-red-dim p-4 transition-colors hover:brightness-110"
+                >
+                  <h4 className="text-[13px] font-semibold text-[#F4D3CD]">
+                    {a.title} — {a.name}
+                  </h4>
+                  <p className="mt-1 text-[11.5px] text-[#E8B3AC]">{a.rule}</p>
+                  <p className="mt-2 text-[11px] text-[#E8B3AC]">{a.detail}</p>
+                </Link>
+              ))}
+            </div>
           </div>
-        </Section>
-      )}
+        )}
 
-      {isAdmin && pendingPurchases.length > 0 && (
-        <Section label="Needs your action on goldadam">
-          <div className="overflow-hidden rounded-xl border border-amber-200 bg-white">
-            <table className="w-full text-sm">
-              <tbody>
-                {pendingPurchases.map((cmd) => (
-                  <tr key={cmd.id} className="border-b border-amber-100 last:border-0">
-                    <td className="px-4 py-2.5 font-medium text-stone-900">
-                      {cmd.booking?.customerName || "Unknown customer"}
-                    </td>
-                    <td className="px-4 py-2.5 text-stone-500">{cmd.routeCode}</td>
-                    <td className="px-4 py-2.5 text-stone-500">{cmd.note || "Start Purchase"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-2 text-xs text-stone-500">
-            These are never automated — Start Purchase always needs your click in goldadam
-            (via the extension's "Run write-backs" button or directly on the site).
-          </p>
-        </Section>
-      )}
-
-      {isAdmin ? (
-        <Section label="Agent leaderboard — month to date">
-          <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
-                  <th className="px-4 py-2.5">Agent</th>
-                  <th className="px-4 py-2.5">Sales</th>
-                  <th className="px-4 py-2.5">Close rate</th>
-                  <th className="px-4 py-2.5">Avg margin</th>
-                  <th className="px-4 py-2.5">Payout</th>
-                  <th className="px-4 py-2.5">Flag</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mtd.byAgent.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-stone-400">
-                      No agent activity yet this month.
-                    </td>
-                  </tr>
-                ) : (
-                  mtd.byAgent.map((a) => (
-                    <tr key={a.agentId} className="border-b border-stone-100 last:border-0">
-                      <td className="px-4 py-2.5 font-medium text-stone-900">{a.name}</td>
-                      <td className="px-4 py-2.5">{a.salesCount}</td>
-                      <td className="px-4 py-2.5">{pct(a.closeRate)}</td>
-                      <td className="px-4 py-2.5">{pct(a.avgMargin)}</td>
-                      <td className="px-4 py-2.5">{money(a.payout)}</td>
-                      <td className="px-4 py-2.5">
-                        <FlagBadge agent={a} teamAvgClose={teamAvgClose} />
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Section>
-      ) : (
-        <Section label="Today's schedule">
-          <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
-            {todaysBookings.length === 0 ? (
-              <p className="p-4 text-sm text-stone-400">No bookings today.</p>
-            ) : (
-              <table className="w-full text-sm">
+        {isAdmin && pendingPurchases.length > 0 && (
+          <div>
+            <SectionHead title="Needs your action on goldadam" />
+            <div className={TABLE_WRAP}>
+              <table className="w-full">
                 <tbody>
-                  {todaysBookings.map((b) => (
-                    <tr key={b._id} className="border-b border-stone-100 last:border-0">
-                      <td className="px-4 py-2.5 text-stone-500">{b.timeWindow}</td>
-                      <td className="px-4 py-2.5 font-medium text-stone-900">{b.customerName}</td>
-                      <td className="px-4 py-2.5 text-stone-500">{b.stopName}</td>
-                      <td className="px-4 py-2.5">
-                        <StatusBadge status={b.status} />
-                      </td>
+                  {pendingPurchases.map((cmd) => (
+                    <tr key={cmd.id} className={TR_HOVER}>
+                      <td className={TD + " font-medium"}>{cmd.booking?.customerName || "Unknown customer"}</td>
+                      <td className={TD + " text-muted"}>{cmd.routeCode}</td>
+                      <td className={TD + " text-muted"}>{cmd.note || "Start Purchase"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
+            </div>
+            <p className="mt-2 text-xs text-muted-dim">
+              These are never automated — Start Purchase always needs your click in goldadam (via the
+              extension&apos;s &ldquo;Run write-backs&rdquo; button or directly on the site).
+            </p>
           </div>
-          <Link href="/bookings" className="mt-3 inline-block text-sm font-medium text-amber-700 hover:underline">
-            View all bookings →
-          </Link>
-        </Section>
-      )}
-    </div>
+        )}
+
+        {isAdmin ? (
+          <div>
+            <SectionHead title="Agent leaderboard" subtitle="Month to date" />
+            <div className={TABLE_WRAP}>
+              <table className="w-full">
+                <thead className={THEAD}>
+                  <tr>
+                    <th className={TH}>Agent</th>
+                    <th className={TH}>Sales</th>
+                    <th className={TH}>Close rate</th>
+                    <th className={TH}>Avg margin</th>
+                    <th className={TH}>Payout</th>
+                    <th className={TH}>Flag</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mtd.byAgent.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <EmptyState>No agent activity yet this month.</EmptyState>
+                      </td>
+                    </tr>
+                  ) : (
+                    mtd.byAgent.map((a) => (
+                      <tr key={a.agentId} className={TR_HOVER}>
+                        <td className={TD + " font-medium"}>{a.name}</td>
+                        <td className={TD}>{a.salesCount}</td>
+                        <td className={TD}>{pct(a.closeRate)}</td>
+                        <td className={TD}>{pct(a.avgMargin)}</td>
+                        <td className={TD}>{money(a.payout)}</td>
+                        <td className={TD}>
+                          <FlagRow agent={a} teamAvgClose={teamAvgClose} />
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <SectionHead title="Today's schedule" />
+            <div className={TABLE_WRAP}>
+              {todaysBookings.length === 0 ? (
+                <EmptyState>No bookings today.</EmptyState>
+              ) : (
+                <table className="w-full">
+                  <tbody>
+                    {todaysBookings.map((b) => (
+                      <tr key={b._id} className={TR_HOVER}>
+                        <td className={TD + " text-muted"}>{b.timeWindow}</td>
+                        <td className={TD + " font-medium"}>{b.customerName}</td>
+                        <td className={TD + " text-muted"}>{b.stopName}</td>
+                        <td className={TD}>
+                          <StatusChip status={b.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <Link href="/bookings" className="mt-3 inline-block text-sm font-medium text-gold hover:underline">
+              View all bookings →
+            </Link>
+          </div>
+        )}
+      </Content>
+    </>
   );
 }
 
-function Section({ label, children }) {
-  return (
-    <div>
-      <div className="mb-2.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-        <span className="h-2 w-2 rounded-full bg-amber-600" />
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function TileGrid({ children }) {
-  return <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">{children}</div>;
-}
-
-function Tile({ label, value }) {
-  return (
-    <div className="rounded-xl border border-stone-200 bg-white p-3.5">
-      <div className="text-xs text-stone-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums text-stone-900">{value}</div>
-    </div>
-  );
-}
-
-function FlagBadge({ agent, teamAvgClose }) {
-  if (agent.bookingsTotal === 0) {
-    return (
-      <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-500">
-        No activity
-      </span>
-    );
-  }
-  if (typeof teamAvgClose === "number" && agent.closeRate < teamAvgClose - 10) {
-    return (
-      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700">
-        Low close rate
-      </span>
-    );
-  }
-  if (agent.noShowRate > 15) {
-    return (
-      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-        High no-shows
-      </span>
-    );
-  }
-  return (
-    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-      On track
-    </span>
-  );
+function FlagRow({ agent, teamAvgClose }) {
+  if (agent.bookingsTotal === 0) return <FlagBadge tone="neutral">No activity</FlagBadge>;
+  if (typeof teamAvgClose === "number" && agent.closeRate < teamAvgClose - 10)
+    return <FlagBadge tone="risk">Low close rate</FlagBadge>;
+  if (agent.noShowRate > 15) return <FlagBadge tone="watch">High no-shows</FlagBadge>;
+  return <FlagBadge tone="ok">On track</FlagBadge>;
 }

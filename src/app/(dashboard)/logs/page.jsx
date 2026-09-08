@@ -4,16 +4,17 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import toast from "react-hot-toast";
 import { api } from "@/lib/client";
 import { cn } from "@/lib/utils";
+import { PageHeader, Content, SectionHead, Card, Btn, Input, EmptyState } from "@/components/ui";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
 const STATUS_STYLE = {
-  success: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50", label: "OK" },
-  failed: { dot: "bg-rose-500", text: "text-rose-700", bg: "bg-rose-50", label: "Failed" },
-  skipped: { dot: "bg-stone-400", text: "text-stone-500", bg: "bg-stone-50", label: "Skipped" },
-  started: { dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50", label: "Running" },
+  success: { dot: "bg-green", ring: "ring-green-dim", text: "text-[#9CD9B4]", bg: "bg-green-dim", label: "OK" },
+  failed: { dot: "bg-red", ring: "ring-red-dim", text: "text-[#F0AAA1]", bg: "bg-red-dim", label: "Failed" },
+  skipped: { dot: "bg-muted-dim", ring: "ring-border", text: "text-muted", bg: "bg-panel-raised", label: "Skipped" },
+  started: { dot: "bg-amber", ring: "ring-amber-dim", text: "text-[#F0C088]", bg: "bg-amber-dim", label: "Running" },
 };
 
 const TYPE_LABEL = {
@@ -56,6 +57,16 @@ function groupLogs(logs) {
   return { runs, loose: loose.sort((a, b) => new Date(b.at) - new Date(a.at)) };
 }
 
+// Health cards: latest entry per job type, so the top of the page reads like
+// a service status board rather than a raw log.
+function latestByType(logs) {
+  const byType = new Map();
+  for (const l of [...logs].sort((a, b) => new Date(a.at) - new Date(b.at))) {
+    byType.set(l.type, l);
+  }
+  return [...byType.values()].sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
 export default function LogsPage() {
   const [date, setDate] = useState(todayISO());
   const [logs, setLogs] = useState(null);
@@ -80,60 +91,90 @@ export default function LogsPage() {
   }, [date, load]);
 
   const { runs, loose } = useMemo(() => groupLogs(logs || []), [logs]);
+  const health = useMemo(() => latestByType(logs || []), [logs]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-stone-900">Daily Automation Log</h1>
-          <p className="text-sm text-stone-500">
-            Har din ka run — kaunsa step ho gaya, kaunsa fail hua aur kyun.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-lg border border-stone-300 px-3 py-2 text-sm"
-          />
-          <button
-            onClick={() => load(date)}
-            className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
+    <>
+      <PageHeader title="Scraper Health" subtitle="Playwright worker status — every job that touches goldadam">
+        <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <Btn variant="outline" onClick={() => load(date)}>
+          ↻ Refresh
+        </Btn>
+      </PageHeader>
 
-      {loading ? (
-        <div className="py-12 text-center text-stone-400">Loading…</div>
-      ) : runs.length === 0 && loose.length === 0 ? (
-        <div className="rounded-xl border border-stone-200 bg-white p-8 text-center text-stone-400">
-          Is din ke liye koi log nahi mila.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {runs.map((run) => (
-            <RunCard key={run.runId} run={run} open={openRun === run.runId} onToggle={() => setOpenRun(openRun === run.runId ? null : run.runId)} />
-          ))}
-
-          {loose.length > 0 && (
-            <div className="rounded-xl border border-stone-200 bg-white">
-              <div className="border-b border-stone-100 px-4 py-3">
-                <h3 className="text-sm font-semibold text-stone-900">Doosre events</h3>
-                <p className="text-xs text-stone-500">SMS jobs aur customer replies — ye kisi run ka hissa nahi, apne aap chalte hain.</p>
+      <Content>
+        {loading ? (
+          <EmptyState>Loading…</EmptyState>
+        ) : (
+          <>
+            {health.length > 0 && (
+              <div>
+                <SectionHead title="Latest by job" />
+                <div className="grid gap-4 md:grid-cols-2">
+                  {health.map((l) => {
+                    const s = STATUS_STYLE[l.status] || STATUS_STYLE.success;
+                    return (
+                      <Card key={l.type}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-text">{TYPE_LABEL[l.type] || l.type}</span>
+                          <span className={cn("h-2.5 w-2.5 rounded-full ring-4", s.dot, s.ring)} />
+                        </div>
+                        <div className="mt-2 flex justify-between text-[12.5px] text-muted">
+                          <span>Last run</span>
+                          <b className="text-text">{timeOf(l.at)}</b>
+                        </div>
+                        <div className="mt-1 flex justify-between text-[12.5px] text-muted">
+                          <span>Status</span>
+                          <b className={s.text}>{s.label}</b>
+                        </div>
+                        {l.detail && (
+                          <div className="mt-1 flex justify-between gap-3 text-[12.5px] text-muted">
+                            <span>Detail</span>
+                            <b className="text-right text-text">{l.detail}</b>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
+                </div>
               </div>
-              <ul className="divide-y divide-stone-100">
-                {loose.map((l) => (
-                  <StepRow key={l._id} log={l} />
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+            )}
+
+            {runs.length === 0 && loose.length === 0 ? (
+              <EmptyState>No logs found for this date.</EmptyState>
+            ) : (
+              <div>
+                <SectionHead title="Run log" />
+                <div className="space-y-4">
+                  {runs.map((run) => (
+                    <RunCard
+                      key={run.runId}
+                      run={run}
+                      open={openRun === run.runId}
+                      onToggle={() => setOpenRun(openRun === run.runId ? null : run.runId)}
+                    />
+                  ))}
+
+                  {loose.length > 0 && (
+                    <Card className="!p-0">
+                      <div className="border-b border-border px-4 py-3">
+                        <h3 className="text-sm font-semibold text-text">Other events</h3>
+                        <p className="text-xs text-muted-dim">SMS jobs and customer replies — not part of a scrape run.</p>
+                      </div>
+                      <ul className="divide-y divide-border">
+                        {loose.map((l) => (
+                          <StepRow key={l._id} log={l} />
+                        ))}
+                      </ul>
+                    </Card>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Content>
+    </>
   );
 }
 
@@ -143,16 +184,16 @@ function RunCard({ run, open, onToggle }) {
   const failCount = run.steps.filter((x) => x.status === "failed").length;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+    <Card className="!p-0 overflow-hidden">
       <button onClick={onToggle} className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
         <div className="flex items-center gap-3">
           <span className={cn("h-2.5 w-2.5 rounded-full", s.dot)} />
           <div>
-            <div className="text-sm font-semibold text-stone-900">
+            <div className="text-sm font-semibold text-text">
               Run — {timeOf(run.startedAt)}
-              <span className="ml-2 font-mono text-xs font-normal text-stone-400">{run.runId}</span>
+              <span className="ml-2 font-mono text-xs font-normal text-muted-dim">{run.runId}</span>
             </div>
-            <div className="text-xs text-stone-500">
+            <div className="text-xs text-muted">
               {okCount} step{okCount === 1 ? "" : "s"} ok{failCount > 0 ? `, ${failCount} failed` : ""} · {run.steps.length} total
             </div>
           </div>
@@ -160,29 +201,29 @@ function RunCard({ run, open, onToggle }) {
         <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", s.bg, s.text)}>{s.label}</span>
       </button>
       {open && (
-        <ul className="divide-y divide-stone-100 border-t border-stone-100">
+        <ul className="divide-y divide-border border-t border-border">
           {run.steps.map((l) => (
             <StepRow key={l._id} log={l} />
           ))}
         </ul>
       )}
-    </div>
+    </Card>
   );
 }
 
 function StepRow({ log }) {
   const s = STATUS_STYLE[log.status] || STATUS_STYLE.success;
   return (
-    <li className="flex items-start gap-3 px-4 py-3">
-      <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", s.dot)} />
+    <li className="flex items-start gap-3 px-4 py-3 font-mono text-[11.5px]">
+      <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", s.dot)} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="text-sm font-medium text-stone-900">{TYPE_LABEL[log.type] || log.type}</span>
-          {log.routeCode && <span className="font-mono text-xs text-stone-400">{log.routeCode}</span>}
-          <span className={cn("text-xs font-medium", s.text)}>{s.label}</span>
-          <span className="text-xs text-stone-400">{timeOf(log.at)}</span>
+          <span className="font-sans text-sm font-medium text-text">{TYPE_LABEL[log.type] || log.type}</span>
+          {log.routeCode && <span className="text-muted-dim">{log.routeCode}</span>}
+          <span className={cn("font-sans text-xs font-medium", s.text)}>{s.label}</span>
+          <span className="text-muted-dim">{timeOf(log.at)}</span>
         </div>
-        {log.detail && <p className="mt-0.5 text-sm text-stone-600">{log.detail}</p>}
+        {log.detail && <p className="mt-0.5 font-sans text-sm text-muted">{log.detail}</p>}
       </div>
     </li>
   );

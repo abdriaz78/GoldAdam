@@ -1,25 +1,65 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { api } from "@/lib/client";
+import {
+  PageHeader,
+  Content,
+  SectionHead,
+  Card,
+  Btn,
+  Input,
+  FlagBadge,
+  TABLE_WRAP,
+  THEAD,
+  TH,
+  TD,
+  TR_HOVER,
+  EmptyState,
+} from "@/components/ui";
+
+const pct = (n) => `${Number(n || 0).toFixed(1)}%`;
+const money = (n) => `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+function monthStartISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState([]);
+  const [mtd, setMtd] = useState(null);
+  const [loadingMtd, setLoadingMtd] = useState(true);
   const [form, setForm] = useState({ name: "", email: "", phone: "", twilioNumber: "", goldadamName: "" });
   const [saving, setSaving] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await api("/api/agents");
       setAgents(data.agents);
     } catch (err) {
       toast.error(err.message);
     }
-  }
+  }, []);
+
   useEffect(() => {
     load();
-  }, []);
+    (async () => {
+      setLoadingMtd(true);
+      try {
+        const m = await api("/api/reports/summary", { params: { from: monthStartISO(), to: todayISO() } });
+        setMtd(m);
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        setLoadingMtd(false);
+      }
+    })();
+  }, [load]);
 
   async function add(e) {
     e.preventDefault();
@@ -37,82 +77,139 @@ export default function AgentsPage() {
     }
   }
 
+  const teamAvgClose = useMemo(() => {
+    if (!mtd?.byAgent?.length) return null;
+    const active = mtd.byAgent.filter((a) => a.bookingsTotal >= 3);
+    if (!active.length) return null;
+    return active.reduce((s, a) => s + a.closeRate, 0) / active.length;
+  }, [mtd]);
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">Agents</h1>
+    <>
+      <PageHeader title="Field Agents" subtitle="Performance leaderboard, month to date, plus the agent roster" />
+      <Content>
+        <div>
+          <SectionHead
+            title="Leaderboard"
+            subtitle={teamAvgClose != null ? `Team avg close rate: ${pct(teamAvgClose)}` : undefined}
+          />
+          <div className={TABLE_WRAP}>
+            <table className="w-full">
+              <thead className={THEAD}>
+                <tr>
+                  <th className={TH}>Agent</th>
+                  <th className={TH}>Bookings</th>
+                  <th className={TH}>Purchases</th>
+                  <th className={TH}>Close rate</th>
+                  <th className={TH}>Avg margin</th>
+                  <th className={TH}>No-show rate</th>
+                  <th className={TH}>Payout</th>
+                  <th className={TH}>Flag</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingMtd ? (
+                  <tr>
+                    <td colSpan={8}>
+                      <EmptyState>Loading…</EmptyState>
+                    </td>
+                  </tr>
+                ) : !mtd?.byAgent?.length ? (
+                  <tr>
+                    <td colSpan={8}>
+                      <EmptyState>No agent activity yet this month.</EmptyState>
+                    </td>
+                  </tr>
+                ) : (
+                  mtd.byAgent.map((a) => (
+                    <tr key={a.agentId} className={TR_HOVER}>
+                      <td className={TD + " font-medium"}>{a.name}</td>
+                      <td className={TD}>{a.bookingsTotal}</td>
+                      <td className={TD}>{a.salesCount}</td>
+                      <td className={TD}>{pct(a.closeRate)}</td>
+                      <td className={TD}>{pct(a.avgMargin)}</td>
+                      <td className={TD}>{pct(a.noShowRate)}</td>
+                      <td className={TD}>{money(a.payout)}</td>
+                      <td className={TD}>
+                        <FlagRow agent={a} teamAvgClose={teamAvgClose} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-      <form
-        onSubmit={add}
-        className="bg-white border border-slate-200 rounded-xl p-3 grid grid-cols-1 md:grid-cols-5 gap-2"
-      >
-        <input
-          placeholder="Name"
-          value={form.name}
-          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Email"
-          value={form.email}
-          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Phone"
-          value={form.phone}
-          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Twilio number"
-          value={form.twilioNumber}
-          onChange={(e) => setForm((f) => ({ ...f, twilioNumber: e.target.value }))}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-        <input
-          placeholder="Goldadam name (Sponsored tab)"
-          value={form.goldadamName}
-          onChange={(e) => setForm((f) => ({ ...f, goldadamName: e.target.value }))}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-        <button
-          disabled={saving}
-          className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
-        >
-          Add agent
-        </button>
-      </form>
+        <div>
+          <SectionHead title="Add agent" />
+          <Card>
+            <form onSubmit={add} className="grid grid-cols-1 gap-2 md:grid-cols-5">
+              <Input placeholder="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+              <Input placeholder="Email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+              <Input placeholder="Phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+              <Input
+                placeholder="Twilio number"
+                value={form.twilioNumber}
+                onChange={(e) => setForm((f) => ({ ...f, twilioNumber: e.target.value }))}
+              />
+              <Input
+                placeholder="Goldadam name (Sponsored tab)"
+                value={form.goldadamName}
+                onChange={(e) => setForm((f) => ({ ...f, goldadamName: e.target.value }))}
+              />
+              <Btn variant="gold" disabled={saving} className="md:col-span-5">
+                {saving ? "Adding…" : "Add agent"}
+              </Btn>
+            </form>
+          </Card>
+        </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-500 border-b border-slate-200">
-              <th className="px-3 py-2 font-medium">Name</th>
-              <th className="px-3 py-2 font-medium">Email</th>
-              <th className="px-3 py-2 font-medium">Phone</th>
-              <th className="px-3 py-2 font-medium">Goldadam name</th>
-            </tr>
-          </thead>
-          <tbody>
-            {agents.map((a) => (
-              <tr key={a._id} className="border-b border-slate-100">
-                <td className="px-3 py-2 font-medium">{a.name}</td>
-                <td className="px-3 py-2 text-slate-600">{a.email || "—"}</td>
-                <td className="px-3 py-2 text-slate-600">{a.phone || "—"}</td>
-                <td className="px-3 py-2 text-slate-600">{a.twilioNumber || "—"}</td>
-                <td className="px-3 py-2 text-slate-600">{a.goldadamName || "—"}</td>
-              </tr>
-            ))}
-            {agents.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-400">
-                  No agents yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+        <div>
+          <SectionHead title="Roster" />
+          <div className={TABLE_WRAP}>
+            <table className="w-full">
+              <thead className={THEAD}>
+                <tr>
+                  <th className={TH}>Name</th>
+                  <th className={TH}>Email</th>
+                  <th className={TH}>Phone</th>
+                  <th className={TH}>Twilio</th>
+                  <th className={TH}>Goldadam name</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map((a) => (
+                  <tr key={a._id} className={TR_HOVER}>
+                    <td className={TD + " font-medium"}>{a.name}</td>
+                    <td className={TD + " text-muted"}>{a.email || "—"}</td>
+                    <td className={TD + " text-muted"}>{a.phone || "—"}</td>
+                    <td className={TD + " text-muted"}>{a.twilioNumber || "—"}</td>
+                    <td className={TD + " text-muted"}>{a.goldadamName || "—"}</td>
+                  </tr>
+                ))}
+                {agents.length === 0 && (
+                  <tr>
+                    <td colSpan={5}>
+                      <EmptyState>No agents yet.</EmptyState>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Content>
+    </>
   );
+}
+
+function FlagRow({ agent, teamAvgClose }) {
+  if (agent.bookingsTotal === 0) return <FlagBadge tone="neutral">No activity</FlagBadge>;
+  if (typeof teamAvgClose === "number" && agent.closeRate < teamAvgClose - 10)
+    return <FlagBadge tone="risk">Low close rate</FlagBadge>;
+  if (agent.noShowRate > 15) return <FlagBadge tone="watch">High no-shows</FlagBadge>;
+  if (typeof teamAvgClose === "number" && agent.closeRate > teamAvgClose + 10)
+    return <FlagBadge tone="top">Top performer</FlagBadge>;
+  return <FlagBadge tone="ok">On track</FlagBadge>;
 }

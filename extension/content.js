@@ -67,7 +67,7 @@
       "position:fixed;top:12px;right:12px;z-index:2147483647;width:300px;background:#0b1220;color:#e5e7eb;font:12px/1.4 system-ui,sans-serif;border:1px solid #334155;border-radius:10px;padding:10px;box-shadow:0 6px 24px rgba(0,0,0,.5)";
     p.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <b style="font-size:13px">Gold Adam CRM Sync</b>
+        <b style="font-size:13px">Goldroute Sync</b>
         <span id="gaext-min" style="cursor:pointer;opacity:.7">–</span>
       </div>
       <div id="gaext-body">
